@@ -5,7 +5,7 @@ venv/
 .env
 
 # ML models (large)
-backend/risk_model.pkl
+#backend/risk_model.pkl
 
 # Database
 *.db
