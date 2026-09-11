@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+.env
+
+# ML models (large)
+backend/risk_model.pkl
+
+# Database
+*.db
+
+# Node
+node_modules/
+dist/
+
+# IDE
+.vscode/
+.idea/
