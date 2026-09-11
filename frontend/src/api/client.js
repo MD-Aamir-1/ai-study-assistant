@@ -27,3 +27,5 @@ export const submitQuiz = (payload) => API.post("/quiz/submit", payload);
 export const getMLPredictions = (id) => API.get(`/ml/predict/${id}`);
 
 export default API;
+export const askAITutor = (studentId, question) =>
+  API.post("/ai/ask", { student_id: studentId, question });

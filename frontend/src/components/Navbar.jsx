@@ -15,6 +15,9 @@ export default function Navbar() {
         <NavLink to="/quiz" className={({ isActive }) => (isActive ? "active" : "")}>
           Quiz
         </NavLink>
+        <NavLink to="/ai-tutor" className={({ isActive }) => (isActive ? "active" : "")}>
+          AI Tutor
+        </NavLink>
       </div>
     </nav>
   );

@@ -425,3 +425,49 @@ def ml_predict(student_id: int, db: Session = Depends(get_db)):
         "at_risk_topics": at_risk_count,
         "predictions": predictions,
     }
+# ==================================================
+# AI TUTOR (Groq + Llama 3)
+# ==================================================
+from pydantic import BaseModel
+from ai_tutor import ask_tutor
+
+class AIAskRequest(BaseModel):
+    student_id: int
+    question: str
+
+@app.post("/ai/ask")
+def ai_ask(req: AIAskRequest, db: Session = Depends(get_db)):
+    student = db.query(models.Student).filter(models.Student.id == req.student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    subjects = db.query(models.Subject).filter(models.Subject.student_id == req.student_id).all()
+    weak = []
+    for subject in subjects:
+        topics = db.query(models.Topic).filter(models.Topic.subject_id == subject.id).all()
+        for topic in topics:
+            perf = db.query(models.Performance).filter(
+                models.Performance.student_id == req.student_id,
+                models.Performance.topic_id == topic.id
+            ).first()
+            score = perf.score if perf else 0.0
+            if score < 60:
+                weak.append({
+                    "topic_name": topic.name,
+                    "subject_name": subject.name,
+                    "score": score,
+                    "difficulty": topic.difficulty,
+                })
+
+    weak.sort(key=lambda x: x["score"])
+    try:
+        answer = ask_tutor(req.question, weak)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI Tutor error: {str(e)}")
+
+    return {
+        "student_id": req.student_id,
+        "question": req.question,
+        "answer": answer,
+        "context_topics": [t["topic_name"] for t in weak],
+    }
