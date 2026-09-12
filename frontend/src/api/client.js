@@ -45,3 +45,11 @@ export const createTopic = (name, difficulty, subjectId) =>
 export const deleteSubject = (subjectId) => API.delete(`/subjects/${subjectId}`);
 export const deleteTopic = (topicId) => API.delete(`/topics/${topicId}`);
 export const getProgressAnalytics = (id) => API.get(`/analytics/progress/${id}`);
+export const updateStudent = (id, updates) => API.put(`/students/${id}`, updates);
+export const deleteStudent = (id) => API.delete(`/students/${id}`);
+export const exportStudentData = (id) => API.get(`/students/${id}/export`);
+export const generateQuiz = (topicId, numQuestions = 5) =>
+  API.post("/quiz/generate", { topic_id: topicId, num_questions: numQuestions });
+
+export const submitDynamicQuiz = (payload) =>
+  API.post("/quiz/submit-dynamic", payload);

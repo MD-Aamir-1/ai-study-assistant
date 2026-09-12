@@ -2,17 +2,10 @@ import { useEffect, useState, useRef } from "react";
 import {
   getStudents,
   getRecommendations,
-  getTopicQuestions,
-  submitQuiz,
+  generateQuiz,
+  submitDynamicQuiz,
 } from "../api/client";
-import {
-  Clock,
-  SkipForward,
-  ArrowRight,
-  Check,
-  RotateCcw,
-  BookOpen,
-} from "lucide-react";
+import { Clock, SkipForward, ArrowRight, Check, Sparkles, RefreshCw } from "lucide-react";
 import "./Quiz.css";
 
 export default function Quiz() {
@@ -26,7 +19,8 @@ export default function Quiz() {
   const [answers, setAnswers] = useState({});
   const [result, setResult] = useState(null);
 
-  const [loading, setLoading] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [seconds, setSeconds] = useState(0);
   const timerRef = useRef(null);
@@ -41,7 +35,7 @@ export default function Quiz() {
       .catch(() => setError("Could not load students."));
   }, []);
 
-  // Load topics (from recommendations)
+  // Load topics
   useEffect(() => {
     if (!selectedId) return;
     getRecommendations(selectedId)
@@ -58,18 +52,11 @@ export default function Quiz() {
       .catch(() => setError("Failed to load topics"));
   }, [selectedId]);
 
-  // Load questions when topic changes
+  // Auto-generate when topic changes
   useEffect(() => {
     if (!selectedTopic) return;
-    setLoading(true);
-    setResult(null);
-    setAnswers({});
-    setCurrentIndex(0);
-    setSeconds(0);
-    getTopicQuestions(selectedTopic)
-      .then((res) => setQuestions(res.data))
-      .catch(() => setError("Failed to load questions"))
-      .finally(() => setLoading(false));
+    handleGenerate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTopic]);
 
   // Timer
@@ -81,6 +68,28 @@ export default function Quiz() {
     timerRef.current = setInterval(() => setSeconds((s) => s + 1), 1000);
     return () => clearInterval(timerRef.current);
   }, [questions.length, result]);
+
+  const handleGenerate = async () => {
+    if (!selectedTopic) return;
+    setGenerating(true);
+    setError("");
+    setQuestions([]);
+    setAnswers({});
+    setCurrentIndex(0);
+    setResult(null);
+    setSeconds(0);
+    try {
+      const res = await generateQuiz(selectedTopic, 5);
+      setQuestions(res.data.questions);
+    } catch (err) {
+      setError(
+        err.response?.data?.detail ||
+          "Quiz generation failed. Try again in a moment."
+      );
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   const formatTime = (s) => {
     const m = Math.floor(s / 60);
@@ -115,19 +124,20 @@ export default function Quiz() {
       setError("Answer at least one question.");
       return;
     }
-    setLoading(true);
+    setSubmitting(true);
     setError("");
     try {
-      const res = await submitQuiz({
+      const res = await submitDynamicQuiz({
         student_id: selectedId,
         topic_id: selectedTopic,
+        questions,
         answers,
       });
       setResult(res.data);
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to submit quiz");
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
@@ -136,27 +146,6 @@ export default function Quiz() {
     setResult(null);
     setCurrentIndex(0);
     setSeconds(0);
-  };
-
-  // "Done" -> reset state but STAY on the quiz page so user can pick another topic
-  const handleDone = () => {
-    setAnswers({});
-    setResult(null);
-    setCurrentIndex(0);
-    setSeconds(0);
-    setQuestions([]);
-    // Refresh recommendations so updated scores appear in the dropdown
-    if (selectedId) {
-      getRecommendations(selectedId)
-        .then((res) => {
-          setTopics(res.data.recommendations);
-          if (res.data.recommendations.length > 0) {
-            // Pre-select the top priority topic for the next quiz
-            setSelectedTopic(res.data.recommendations[0].topic_id);
-          }
-        })
-        .catch(() => {});
-    }
   };
 
   const currentTopic = topics.find((t) => t.topic_id === selectedTopic);
@@ -168,14 +157,14 @@ export default function Quiz() {
     <div className="quiz-page">
       {error && <div className="quiz-error">{error}</div>}
 
-      {/* ---------- HEADER ---------- */}
+      {/* HEADER */}
       <div className="quiz-header">
         <div>
           <h1 className="quiz-title">
             {currentTopic ? `${currentTopic.topic_name} Quiz` : "Quiz"}
           </h1>
           <p className="quiz-subtitle">
-            Test your knowledge and improve your score.
+            AI-generated conceptual questions — fresh every time.
           </p>
         </div>
 
@@ -201,11 +190,31 @@ export default function Quiz() {
               </option>
             ))}
           </select>
+
+          <button
+            className="btn-regenerate"
+            onClick={handleGenerate}
+            disabled={generating || !selectedTopic}
+            title="Generate fresh questions"
+          >
+            <RefreshCw size={14} className={generating ? "spin" : ""} />
+            {generating ? "Generating..." : "New Questions"}
+          </button>
         </div>
       </div>
 
-      {/* ---------- MAIN QUIZ AREA ---------- */}
-      {!result && questions.length > 0 && currentQuestion && (
+      {/* GENERATING STATE */}
+      {generating && (
+        <div className="quiz-generating">
+          <div className="ai-loading">
+            <Sparkles size={20} />
+            <span>Generating conceptual questions with AI...</span>
+          </div>
+        </div>
+      )}
+
+      {/* QUIZ BODY */}
+      {!generating && !result && questions.length > 0 && currentQuestion && (
         <div className="quiz-body">
           <div className="quiz-main">
             <div className="quiz-progress-row">
@@ -226,6 +235,11 @@ export default function Quiz() {
             </div>
 
             <div className="quiz-question-card">
+              <div className="ai-badge">
+                <Sparkles size={12} />
+                AI-Generated Conceptual Question
+              </div>
+
               <h2 className="quiz-q-text">
                 {currentIndex + 1}. {currentQuestion.question}
               </h2>
@@ -279,18 +293,22 @@ export default function Quiz() {
                     <ArrowRight size={14} />
                   </button>
                 ) : (
-                  <button className="btn-primary" onClick={handleNext}>
+                  <button
+                    className="btn-primary"
+                    onClick={handleNext}
+                    disabled={submitting}
+                  >
                     <Check size={14} />
-                    Submit
+                    {submitting ? "Submitting..." : "Submit"}
                   </button>
                 )}
               </div>
             </div>
           </div>
 
+          {/* INFO PANEL */}
           <aside className="quiz-info">
             <h3 className="quiz-info-title">Quiz Info</h3>
-
             <div className="quiz-info-item">
               <span>Topic</span>
               <b>{currentTopic?.topic_name}</b>
@@ -298,6 +316,12 @@ export default function Quiz() {
             <div className="quiz-info-item">
               <span>Subject</span>
               <b>{currentTopic?.subject_name}</b>
+            </div>
+            <div className="quiz-info-item">
+              <span>Difficulty</span>
+              <b style={{ textTransform: "capitalize" }}>
+                {currentTopic?.difficulty}
+              </b>
             </div>
             <div className="quiz-info-item">
               <span>Total Questions</span>
@@ -308,34 +332,27 @@ export default function Quiz() {
               <b>{Object.keys(answers).length}</b>
             </div>
             <div className="quiz-info-item">
-              <span>Current Difficulty</span>
-              <b style={{ textTransform: "capitalize" }}>
-                {currentTopic?.difficulty}
-              </b>
-            </div>
-            <div className="quiz-info-item">
               <span>Your Score</span>
               <b>{currentTopic?.score}%</b>
+            </div>
+
+            <div className="quiz-info-note">
+              <Sparkles size={13} />
+              Questions are generated fresh by AI each time to test
+              conceptual understanding.
             </div>
           </aside>
         </div>
       )}
 
-      {loading && <p className="quiz-muted">Loading...</p>}
-
-      {/* ---------- NO QUESTIONS ---------- */}
-      {!loading && !result && questions.length === 0 && (
-        <div className="quiz-empty-box">
-          <BookOpen size={36} />
-          <p className="quiz-empty-title">No questions for this topic yet.</p>
-          <p className="quiz-empty-hint">
-            Try selecting a different topic from the dropdown above, or add
-            questions to this topic via the API.
-          </p>
-        </div>
+      {/* EMPTY STATE */}
+      {!generating && !result && questions.length === 0 && !error && (
+        <p className="quiz-empty">
+          Select a topic to generate AI-powered conceptual questions.
+        </p>
       )}
 
-      {/* ---------- RESULT ---------- */}
+      {/* RESULT */}
       {result && (
         <div className="quiz-result-box">
           <h2>🎯 Result</h2>
@@ -366,15 +383,13 @@ export default function Quiz() {
             ))}
           </div>
 
-          {/* Result actions */}
           <div className="quiz-result-actions">
-            <button onClick={handleRetry} className="btn-secondary">
-              <RotateCcw size={15} />
-              Try Again
+            <button onClick={handleRetry} className="btn-primary">
+              Review Answers
             </button>
-            <button onClick={handleDone} className="btn-primary">
-              <Check size={15} />
-              Done — Try Another Topic
+            <button onClick={handleGenerate} className="btn-secondary">
+              <RefreshCw size={14} />
+              Generate New Questions
             </button>
           </div>
         </div>

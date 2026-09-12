@@ -1,5 +1,4 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import Progress from "./pages/Progress";
 import { ThemeProvider } from "./context/ThemeContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import Layout from "./components/Layout";
@@ -11,18 +10,21 @@ import Quiz from "./pages/Quiz";
 import AITutor from "./pages/AITutor";
 import MySubjects from "./pages/MySubjects";
 import MyTopics from "./pages/MyTopics";
-import Placeholder from "./pages/Placeholder";
+import Progress from "./pages/Progress";
+import Settings from "./pages/Settings";
 
 function AppRoutes() {
   const { user } = useAuth();
 
   return (
     <Routes>
+      {/* Public: Login */}
       <Route
         path="/login"
         element={user ? <Navigate to="/" replace /> : <Login />}
       />
 
+      {/* Protected app shell */}
       <Route
         path="/*"
         element={
@@ -34,12 +36,12 @@ function AppRoutes() {
                 <Route path="/topics" element={<MyTopics />} />
                 <Route path="/study-plan" element={<StudyPlan />} />
                 <Route path="/quiz" element={<Quiz />} />
-                <Route path="/ai-tutor" element={<AITutor />} />
                 <Route path="/progress" element={<Progress />} />
-                <Route
-                  path="/settings"
-                  element={<Placeholder title="Settings" />}
-                />
+                <Route path="/ai-tutor" element={<AITutor />} />
+                <Route path="/settings" element={<Settings />} />
+
+                {/* Catch-all: any unknown URL → Dashboard */}
+                <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </Layout>
           </ProtectedRoute>
