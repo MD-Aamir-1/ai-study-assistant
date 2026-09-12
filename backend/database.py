@@ -1,21 +1,22 @@
+import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
+from dotenv import load_dotenv
 
-# SQLite database file (will be created automatically)
-DATABASE_URL = "sqlite:///./study_assistant.db"
+# Load environment variables from .env file
+load_dotenv()
 
-# Create engine
-engine = create_engine(
-    DATABASE_URL,
-    connect_args={"check_same_thread": False}  # Needed for SQLite
-)
+# Use DATABASE_URL if set (production), otherwise fall back to local SQLite (development)
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./study_assistant.db")
 
-# Session factory
-SessionLocal = sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=engine
-)
+# SQLite needs a special argument; PostgreSQL does not
+if DATABASE_URL.startswith("sqlite"):
+    engine = create_engine(
+        DATABASE_URL, connect_args={"check_same_thread": False}
+    )
+else:
+    engine = create_engine(DATABASE_URL)
 
-# Base class for models
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
 Base = declarative_base()
