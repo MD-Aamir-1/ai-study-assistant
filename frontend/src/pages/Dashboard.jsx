@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
-import { getStudents, getDashboardAnalytics } from "../api/client";
+import {
+  getStudents,
+  getDashboardAnalytics,
+  getRecommendationsList,
+} from "../api/client";
 import {
   BookOpen,
   Clock,
@@ -15,9 +19,11 @@ export default function Dashboard() {
   const [students, setStudents] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [data, setData] = useState(null);
+  const [recs, setRecs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  // Load students
   useEffect(() => {
     getStudents()
       .then((res) => {
@@ -27,6 +33,7 @@ export default function Dashboard() {
       .catch(() => setError("Could not load students. Is the backend running?"));
   }, []);
 
+  // Load dashboard analytics when student changes
   useEffect(() => {
     if (!selectedId) return;
     setLoading(true);
@@ -35,6 +42,14 @@ export default function Dashboard() {
       .then((res) => setData(res.data))
       .catch(() => setError("Failed to load dashboard data"))
       .finally(() => setLoading(false));
+  }, [selectedId]);
+
+  // Load top recommendations when student changes
+  useEffect(() => {
+    if (!selectedId) return;
+    getRecommendationsList(selectedId)
+      .then((res) => setRecs(res.data.recommendations.slice(0, 3)))
+      .catch(() => setRecs([]));
   }, [selectedId]);
 
   const formatMinutes = (m) => {
@@ -163,6 +178,37 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
+
+          {/* ---------- TOP RECOMMENDATIONS WIDGET ---------- */}
+          {recs.length > 0 && (
+            <div className="panel">
+              <div className="panel-header">
+                <h2 className="panel-title">🎯 Recommended for You</h2>
+                <a href="/recommendations" className="panel-link">
+                  View All →
+                </a>
+              </div>
+              <div className="dash-recs">
+                {recs.map((r, i) => (
+                  <div key={r.id} className="dash-rec-item">
+                    <div className="dash-rec-rank">{i + 1}</div>
+                    <div className="dash-rec-body">
+                      <div className="dash-rec-name">{r.concept_name}</div>
+                      <div className="dash-rec-reason">{r.reason}</div>
+                    </div>
+                    <div className="dash-rec-meta">
+                      <span className="dash-rec-min">
+                        {r.suggested_minutes}m
+                      </span>
+                      <span className="dash-rec-activity">
+                        {r.activity_type}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* ---------- TWO COLUMN ---------- */}
           <div className="dash-columns">

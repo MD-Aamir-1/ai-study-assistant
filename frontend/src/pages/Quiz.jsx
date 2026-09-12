@@ -2,10 +2,20 @@ import { useEffect, useState, useRef } from "react";
 import {
   getStudents,
   getRecommendations,
-  generateQuiz,
-  submitDynamicQuiz,
+  generateTest,
+  submitTest,
 } from "../api/client";
-import { Clock, SkipForward, ArrowRight, Check, Sparkles, RefreshCw } from "lucide-react";
+import {
+  Clock,
+  SkipForward,
+  ArrowRight,
+  Check,
+  Sparkles,
+  RefreshCw,
+  TrendingUp,
+  TrendingDown,
+  Minus,
+} from "lucide-react";
 import "./Quiz.css";
 
 export default function Quiz() {
@@ -52,7 +62,7 @@ export default function Quiz() {
       .catch(() => setError("Failed to load topics"));
   }, [selectedId]);
 
-  // Auto-generate when topic changes
+  // Auto-generate on topic change
   useEffect(() => {
     if (!selectedTopic) return;
     handleGenerate();
@@ -79,12 +89,12 @@ export default function Quiz() {
     setResult(null);
     setSeconds(0);
     try {
-      const res = await generateQuiz(selectedTopic, 5);
+      const res = await generateTest(selectedTopic, 6);
       setQuestions(res.data.questions);
     } catch (err) {
       setError(
         err.response?.data?.detail ||
-          "Quiz generation failed. Try again in a moment."
+          "Test generation failed. Try again in a moment."
       );
     } finally {
       setGenerating(false);
@@ -127,15 +137,10 @@ export default function Quiz() {
     setSubmitting(true);
     setError("");
     try {
-      const res = await submitDynamicQuiz({
-        student_id: selectedId,
-        topic_id: selectedTopic,
-        questions,
-        answers,
-      });
+      const res = await submitTest(selectedId, answers);
       setResult(res.data);
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to submit quiz");
+      setError(err.response?.data?.detail || "Failed to submit test");
     } finally {
       setSubmitting(false);
     }
@@ -153,6 +158,18 @@ export default function Quiz() {
   const progress =
     questions.length > 0 ? ((currentIndex + 1) / questions.length) * 100 : 0;
 
+  const trendIcon = (trend) => {
+    if (trend === "improving") return <TrendingUp size={12} />;
+    if (trend === "declining") return <TrendingDown size={12} />;
+    return <Minus size={12} />;
+  };
+
+  const conceptColor = (score) => {
+    if (score >= 75) return "concept-good";
+    if (score >= 50) return "concept-mid";
+    return "concept-weak";
+  };
+
   return (
     <div className="quiz-page">
       {error && <div className="quiz-error">{error}</div>}
@@ -161,10 +178,10 @@ export default function Quiz() {
       <div className="quiz-header">
         <div>
           <h1 className="quiz-title">
-            {currentTopic ? `${currentTopic.topic_name} Quiz` : "Quiz"}
+            {currentTopic ? `${currentTopic.topic_name} Test` : "Conceptual Test"}
           </h1>
           <p className="quiz-subtitle">
-            AI-generated conceptual questions — fresh every time.
+            Concept-aware questions — find out exactly what you understand.
           </p>
         </div>
 
@@ -208,7 +225,7 @@ export default function Quiz() {
         <div className="quiz-generating">
           <div className="ai-loading">
             <Sparkles size={20} />
-            <span>Generating conceptual questions with AI...</span>
+            <span>Generating concept-aware questions...</span>
           </div>
         </div>
       )}
@@ -237,7 +254,8 @@ export default function Quiz() {
             <div className="quiz-question-card">
               <div className="ai-badge">
                 <Sparkles size={12} />
-                AI-Generated Conceptual Question
+                {currentQuestion.question_type || "conceptual"} ·{" "}
+                {currentQuestion.difficulty}
               </div>
 
               <h2 className="quiz-q-text">
@@ -308,7 +326,7 @@ export default function Quiz() {
 
           {/* INFO PANEL */}
           <aside className="quiz-info">
-            <h3 className="quiz-info-title">Quiz Info</h3>
+            <h3 className="quiz-info-title">Test Info</h3>
             <div className="quiz-info-item">
               <span>Topic</span>
               <b>{currentTopic?.topic_name}</b>
@@ -331,54 +349,124 @@ export default function Quiz() {
               <span>Answered</span>
               <b>{Object.keys(answers).length}</b>
             </div>
-            <div className="quiz-info-item">
-              <span>Your Score</span>
-              <b>{currentTopic?.score}%</b>
-            </div>
 
-            <div className="quiz-info-note">
-              <Sparkles size={13} />
-              Questions are generated fresh by AI each time to test
-              conceptual understanding.
-            </div>
+            {currentQuestion.concepts?.length > 0 && (
+              <div className="quiz-info-concepts">
+                <div className="quiz-info-subtitle">This question tests</div>
+                {currentQuestion.concepts.map((c) => (
+                  <span key={c.id} className="quiz-concept-chip">
+                    {c.name}
+                  </span>
+                ))}
+              </div>
+            )}
           </aside>
         </div>
       )}
 
-      {/* EMPTY STATE */}
+      {/* EMPTY */}
       {!generating && !result && questions.length === 0 && !error && (
         <p className="quiz-empty">
-          Select a topic to generate AI-powered conceptual questions.
+          Select a topic to generate concept-aware questions.
         </p>
       )}
 
       {/* RESULT */}
       {result && (
         <div className="quiz-result-box">
-          <h2>🎯 Result</h2>
-          <div className="quiz-result-score">{result.score_percent}%</div>
-          <p>
-            You got <b>{result.correct}</b> out of <b>{result.total}</b>{" "}
-            correct.
-          </p>
-          <p className="quiz-perf-note">
-            Performance updated: score →{" "}
-            <b>{result.updated_performance.new_score}%</b> (attempts:{" "}
-            {result.updated_performance.attempts})
-          </p>
+          <div className="result-header">
+            <div>
+              <h2>🎯 Test Results</h2>
+              <p className="result-subtitle">
+                {result.correct} out of {result.total} correct
+              </p>
+            </div>
+            <div className="result-score-big">
+              <span>{result.score_percent}%</span>
+            </div>
+          </div>
 
-          <h3>Details</h3>
-          <div className="quiz-details">
+          {/* Concept-level breakdown */}
+          {result.concepts && result.concepts.length > 0 && (
+            <div className="result-concepts">
+              <h3 className="result-section-title">
+                🧠 Concept Breakdown
+              </h3>
+              <p className="result-section-sub">
+                Sorted weakest first — this is where you need the most work.
+              </p>
+
+              {result.concepts.map((c) => (
+                <div key={c.concept_id} className="concept-result">
+                  <div className="concept-result-header">
+                    <span className="concept-result-name">
+                      {c.concept_name}
+                    </span>
+                    <div className="concept-result-right">
+                      <span
+                        className={`concept-trend trend-${c.trend}`}
+                        title={`Trend: ${c.trend}`}
+                      >
+                        {trendIcon(c.trend)}
+                        {c.trend}
+                      </span>
+                      <span
+                        className={`concept-score-badge ${conceptColor(
+                          c.session_score
+                        )}`}
+                      >
+                        {c.session_score}%
+                      </span>
+                    </div>
+                  </div>
+                  <div className="concept-result-bar">
+                    <div
+                      className={`concept-result-fill ${conceptColor(
+                        c.session_score
+                      )}`}
+                      style={{ width: `${c.session_score}%` }}
+                    />
+                  </div>
+                  <div className="concept-result-meta">
+                    This session: <b>{c.session_correct}/{c.session_total}</b>
+                    {" · "}
+                    Overall: <b>{c.overall_score}%</b> (
+                    {c.overall_attempts} attempts · confidence{" "}
+                    {Math.round(c.confidence * 100)}%)
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Per-question details */}
+          <div className="result-questions">
+            <h3 className="result-section-title">📝 Question Review</h3>
+
             {result.details.map((d) => (
               <div
                 key={d.question_id}
                 className={`quiz-detail ${d.is_correct ? "ok" : "bad"}`}
               >
-                <div>{d.question}</div>
+                <div className="quiz-detail-q">{d.question}</div>
                 <div className="quiz-detail-line">
                   Your answer: <b>{d.your_answer || "—"}</b> · Correct:{" "}
                   <b>{d.correct_answer}</b>
                 </div>
+                {d.explanation && (
+                  <div className="quiz-detail-expl">
+                    💡 {d.explanation}
+                  </div>
+                )}
+                {d.concepts?.length > 0 && (
+                  <div className="quiz-detail-concepts">
+                    {d.concepts.map((cn, i) => (
+                      <span key={i} className="quiz-concept-chip">
+                        {cn}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -389,7 +477,7 @@ export default function Quiz() {
             </button>
             <button onClick={handleGenerate} className="btn-secondary">
               <RefreshCw size={14} />
-              Generate New Questions
+              Generate New Test
             </button>
           </div>
         </div>
