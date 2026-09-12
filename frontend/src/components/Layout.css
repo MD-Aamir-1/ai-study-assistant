@@ -1,0 +1,25 @@
+.app-layout {
+  min-height: 100vh;
+  background: var(--bg);
+}
+
+.app-main {
+  margin-left: var(--sidebar-width);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-content {
+  flex: 1;
+  padding: 24px;
+}
+
+@media (max-width: 900px) {
+  .sidebar {
+    transform: translateX(-100%);
+  }
+  .app-main {
+    margin-left: 0;
+  }
+}

@@ -29,3 +29,19 @@ export const getMLPredictions = (id) => API.get(`/ml/predict/${id}`);
 export default API;
 export const askAITutor = (studentId, question) =>
   API.post("/ai/ask", { student_id: studentId, question });
+export const getDashboardAnalytics = (id) => API.get(`/analytics/dashboard/${id}`);
+export const getEnrichedSubjects = (studentId) =>
+  API.get(`/students/${studentId}/subjects/enriched`);
+
+export const getEnrichedTopics = (studentId) =>
+  API.get(`/students/${studentId}/topics/enriched`);
+
+export const createSubject = (name, studentId) =>
+  API.post("/subjects", { name, student_id: studentId });
+
+export const createTopic = (name, difficulty, subjectId) =>
+  API.post("/topics", { name, difficulty, subject_id: subjectId });
+
+export const deleteSubject = (subjectId) => API.delete(`/subjects/${subjectId}`);
+export const deleteTopic = (topicId) => API.delete(`/topics/${topicId}`);
+export const getProgressAnalytics = (id) => API.get(`/analytics/progress/${id}`);

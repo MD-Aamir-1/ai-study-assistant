@@ -63,69 +63,89 @@ export default function StudyPlan() {
   const doneMinutes = plan
     .filter((p) => p.completed)
     .reduce((sum, p) => sum + p.duration_minutes, 0);
-  const progress = totalMinutes ? Math.round((doneMinutes / totalMinutes) * 100) : 0;
+  const progress = totalMinutes
+    ? Math.round((doneMinutes / totalMinutes) * 100)
+    : 0;
 
   return (
-    <div className="page">
-      {error && <div className="error">{error}</div>}
+    <div className="plan-page">
+      {error && <div className="plan-error">{error}</div>}
 
-      <div className="row">
-        <label>Student:</label>
-        <select
-          value={selectedId || ""}
-          onChange={(e) => setSelectedId(Number(e.target.value))}
-        >
-          {students.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name} ({s.course})
-            </option>
-          ))}
-        </select>
-
-        <label style={{ marginLeft: 20 }}>Daily minutes:</label>
-        <input
-          type="number"
-          min="30"
-          max="600"
-          step="30"
-          value={minutes}
-          onChange={(e) => setMinutes(Number(e.target.value))}
-          className="minutes-input"
-        />
-
-        <button onClick={handleGenerate} disabled={loading} className="btn-primary">
-          {loading ? "Generating..." : "⚡ Generate Today's Plan"}
-        </button>
-      </div>
-
-      <div className="stats">
-        <div className="stat-card">
-          <div className="stat-label">Total Plans</div>
-          <div className="stat-value">{plan.length}</div>
+      <div className="plan-header">
+        <div>
+          <h1 className="plan-title">Your Personalized Study Plan</h1>
+          <p className="plan-subtitle">
+            A plan created just for you based on your performance.
+          </p>
         </div>
-        <div className="stat-card">
-          <div className="stat-label">Completed</div>
-          <div className="stat-value">{completed}/{plan.length}</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Total Time</div>
-          <div className="stat-value">{totalMinutes} min</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Progress</div>
-          <div className="stat-value">{progress}%</div>
+
+        <div className="plan-controls">
+          <select
+            value={selectedId || ""}
+            onChange={(e) => setSelectedId(Number(e.target.value))}
+          >
+            {students.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name} ({s.course})
+              </option>
+            ))}
+          </select>
+
+          <input
+            type="number"
+            min="30"
+            max="600"
+            step="30"
+            value={minutes}
+            onChange={(e) => setMinutes(Number(e.target.value))}
+            className="minutes-input"
+          />
+
+          <button
+            onClick={handleGenerate}
+            disabled={loading}
+            className="btn-primary"
+          >
+            {loading ? "Generating..." : "⚡ Generate Plan"}
+          </button>
         </div>
       </div>
 
-      <h3 className="section-title">📋 Your Plan</h3>
+      <div className="plan-stats">
+        <div className="plan-stat-card">
+          <div className="plan-stat-label">Total Plans</div>
+          <div className="plan-stat-value">{plan.length}</div>
+        </div>
+        <div className="plan-stat-card">
+          <div className="plan-stat-label">Completed</div>
+          <div className="plan-stat-value">
+            {completed}/{plan.length}
+          </div>
+        </div>
+        <div className="plan-stat-card">
+          <div className="plan-stat-label">Total Time</div>
+          <div className="plan-stat-value">{totalMinutes} min</div>
+        </div>
+        <div className="plan-stat-card">
+          <div className="plan-stat-label">Progress</div>
+          <div className="plan-stat-value">{progress}%</div>
+        </div>
+      </div>
+
+      <h2 className="plan-section-title">📋 Your Plan</h2>
 
       {plan.length === 0 ? (
-        <p className="empty">No plan yet. Click "Generate Today's Plan".</p>
+        <p className="plan-empty">
+          No plan yet. Click "Generate Plan" to create one.
+        </p>
       ) : (
         <div className="plan-list">
           {plan.map((p) => (
-            <div key={p.id} className={`plan-item ${p.completed ? "done" : ""}`}>
-              <div>
+            <div
+              key={p.id}
+              className={`plan-item ${p.completed ? "done" : ""}`}
+            >
+              <div className="plan-item-left">
                 <div className="plan-topic">Topic #{p.topic_id}</div>
                 <div className="plan-meta">
                   {p.duration_minutes} min • {p.date}

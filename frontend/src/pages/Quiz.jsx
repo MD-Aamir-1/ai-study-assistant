@@ -1,10 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   getStudents,
   getRecommendations,
   getTopicQuestions,
   submitQuiz,
 } from "../api/client";
+import {
+  Clock,
+  SkipForward,
+  ArrowRight,
+  Check,
+  RotateCcw,
+  BookOpen,
+} from "lucide-react";
 import "./Quiz.css";
 
 export default function Quiz() {
@@ -14,11 +22,14 @@ export default function Quiz() {
   const [selectedTopic, setSelectedTopic] = useState(null);
 
   const [questions, setQuestions] = useState([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState({});
   const [result, setResult] = useState(null);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [seconds, setSeconds] = useState(0);
+  const timerRef = useRef(null);
 
   // Load students
   useEffect(() => {
@@ -30,7 +41,7 @@ export default function Quiz() {
       .catch(() => setError("Could not load students."));
   }, []);
 
-  // Load topics (from recommendations) when student changes
+  // Load topics (from recommendations)
   useEffect(() => {
     if (!selectedId) return;
     getRecommendations(selectedId)
@@ -39,6 +50,7 @@ export default function Quiz() {
         setResult(null);
         setAnswers({});
         setQuestions([]);
+        setCurrentIndex(0);
         if (res.data.recommendations.length > 0) {
           setSelectedTopic(res.data.recommendations[0].topic_id);
         }
@@ -52,14 +64,50 @@ export default function Quiz() {
     setLoading(true);
     setResult(null);
     setAnswers({});
+    setCurrentIndex(0);
+    setSeconds(0);
     getTopicQuestions(selectedTopic)
       .then((res) => setQuestions(res.data))
       .catch(() => setError("Failed to load questions"))
       .finally(() => setLoading(false));
   }, [selectedTopic]);
 
+  // Timer
+  useEffect(() => {
+    if (questions.length === 0 || result) {
+      if (timerRef.current) clearInterval(timerRef.current);
+      return;
+    }
+    timerRef.current = setInterval(() => setSeconds((s) => s + 1), 1000);
+    return () => clearInterval(timerRef.current);
+  }, [questions.length, result]);
+
+  const formatTime = (s) => {
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+  };
+
   const handleAnswer = (qid, option) => {
     setAnswers((prev) => ({ ...prev, [qid]: option }));
+  };
+
+  const handleNext = () => {
+    if (currentIndex < questions.length - 1) {
+      setCurrentIndex((i) => i + 1);
+    } else {
+      handleSubmit();
+    }
+  };
+
+  const handleSkip = () => {
+    if (currentIndex < questions.length - 1) {
+      setCurrentIndex((i) => i + 1);
+    }
+  };
+
+  const handlePrev = () => {
+    if (currentIndex > 0) setCurrentIndex((i) => i - 1);
   };
 
   const handleSubmit = async () => {
@@ -86,121 +134,249 @@ export default function Quiz() {
   const handleRetry = () => {
     setAnswers({});
     setResult(null);
+    setCurrentIndex(0);
+    setSeconds(0);
+  };
+
+  // "Done" -> reset state but STAY on the quiz page so user can pick another topic
+  const handleDone = () => {
+    setAnswers({});
+    setResult(null);
+    setCurrentIndex(0);
+    setSeconds(0);
+    setQuestions([]);
+    // Refresh recommendations so updated scores appear in the dropdown
+    if (selectedId) {
+      getRecommendations(selectedId)
+        .then((res) => {
+          setTopics(res.data.recommendations);
+          if (res.data.recommendations.length > 0) {
+            // Pre-select the top priority topic for the next quiz
+            setSelectedTopic(res.data.recommendations[0].topic_id);
+          }
+        })
+        .catch(() => {});
+    }
   };
 
   const currentTopic = topics.find((t) => t.topic_id === selectedTopic);
+  const currentQuestion = questions[currentIndex];
+  const progress =
+    questions.length > 0 ? ((currentIndex + 1) / questions.length) * 100 : 0;
 
   return (
-    <div className="page">
-      {error && <div className="error">{error}</div>}
+    <div className="quiz-page">
+      {error && <div className="quiz-error">{error}</div>}
 
-      <div className="row">
-        <label>Student:</label>
-        <select
-          value={selectedId || ""}
-          onChange={(e) => setSelectedId(Number(e.target.value))}
-        >
-          {students.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name} ({s.course})
-            </option>
-          ))}
-        </select>
+      {/* ---------- HEADER ---------- */}
+      <div className="quiz-header">
+        <div>
+          <h1 className="quiz-title">
+            {currentTopic ? `${currentTopic.topic_name} Quiz` : "Quiz"}
+          </h1>
+          <p className="quiz-subtitle">
+            Test your knowledge and improve your score.
+          </p>
+        </div>
 
-        <label style={{ marginLeft: 20 }}>Topic:</label>
-        <select
-          value={selectedTopic || ""}
-          onChange={(e) => setSelectedTopic(Number(e.target.value))}
-        >
-          {topics.map((t) => (
-            <option key={t.topic_id} value={t.topic_id}>
-              {t.subject_name} → {t.topic_name} (score {t.score}%)
-            </option>
-          ))}
-        </select>
+        <div className="quiz-controls">
+          <select
+            value={selectedId || ""}
+            onChange={(e) => setSelectedId(Number(e.target.value))}
+          >
+            {students.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name} ({s.course})
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={selectedTopic || ""}
+            onChange={(e) => setSelectedTopic(Number(e.target.value))}
+          >
+            {topics.map((t) => (
+              <option key={t.topic_id} value={t.topic_id}>
+                {t.subject_name} → {t.topic_name} ({t.score}%)
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
-      {currentTopic && (
-        <div className="topic-info">
-          <b>{currentTopic.topic_name}</b> · Difficulty: {currentTopic.difficulty} · Current score: {currentTopic.score}%
+      {/* ---------- MAIN QUIZ AREA ---------- */}
+      {!result && questions.length > 0 && currentQuestion && (
+        <div className="quiz-body">
+          <div className="quiz-main">
+            <div className="quiz-progress-row">
+              <div className="quiz-progress-text">
+                Question <b>{currentIndex + 1}</b> of <b>{questions.length}</b>
+              </div>
+              <div className="quiz-timer">
+                <Clock size={14} />
+                {formatTime(seconds)}
+              </div>
+            </div>
+
+            <div className="quiz-progress-bar">
+              <div
+                className="quiz-progress-fill"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+
+            <div className="quiz-question-card">
+              <h2 className="quiz-q-text">
+                {currentIndex + 1}. {currentQuestion.question}
+              </h2>
+
+              <div className="quiz-options">
+                {["A", "B", "C", "D"].map((opt) => {
+                  const key = `option_${opt.toLowerCase()}`;
+                  const selected = answers[currentQuestion.id] === opt;
+                  return (
+                    <label
+                      key={opt}
+                      className={`quiz-option ${selected ? "selected" : ""}`}
+                    >
+                      <span className="quiz-opt-radio">
+                        {selected && <span className="quiz-opt-radio-inner" />}
+                      </span>
+                      <input
+                        type="radio"
+                        name={`q-${currentQuestion.id}`}
+                        value={opt}
+                        checked={selected}
+                        onChange={() => handleAnswer(currentQuestion.id, opt)}
+                      />
+                      <span className="quiz-opt-text">
+                        {currentQuestion[key]}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="quiz-nav">
+              <button
+                className="btn-skip"
+                onClick={handlePrev}
+                disabled={currentIndex === 0}
+              >
+                ← Previous
+              </button>
+
+              <div className="quiz-nav-right">
+                <button className="btn-skip" onClick={handleSkip}>
+                  <SkipForward size={14} />
+                  Skip
+                </button>
+
+                {currentIndex < questions.length - 1 ? (
+                  <button className="btn-primary" onClick={handleNext}>
+                    Next
+                    <ArrowRight size={14} />
+                  </button>
+                ) : (
+                  <button className="btn-primary" onClick={handleNext}>
+                    <Check size={14} />
+                    Submit
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <aside className="quiz-info">
+            <h3 className="quiz-info-title">Quiz Info</h3>
+
+            <div className="quiz-info-item">
+              <span>Topic</span>
+              <b>{currentTopic?.topic_name}</b>
+            </div>
+            <div className="quiz-info-item">
+              <span>Subject</span>
+              <b>{currentTopic?.subject_name}</b>
+            </div>
+            <div className="quiz-info-item">
+              <span>Total Questions</span>
+              <b>{questions.length}</b>
+            </div>
+            <div className="quiz-info-item">
+              <span>Answered</span>
+              <b>{Object.keys(answers).length}</b>
+            </div>
+            <div className="quiz-info-item">
+              <span>Current Difficulty</span>
+              <b style={{ textTransform: "capitalize" }}>
+                {currentTopic?.difficulty}
+              </b>
+            </div>
+            <div className="quiz-info-item">
+              <span>Your Score</span>
+              <b>{currentTopic?.score}%</b>
+            </div>
+          </aside>
         </div>
       )}
 
-      {loading && <p>Loading...</p>}
+      {loading && <p className="quiz-muted">Loading...</p>}
 
-      {!loading && questions.length === 0 && !result && (
-        <p className="empty">No questions for this topic yet.</p>
+      {/* ---------- NO QUESTIONS ---------- */}
+      {!loading && !result && questions.length === 0 && (
+        <div className="quiz-empty-box">
+          <BookOpen size={36} />
+          <p className="quiz-empty-title">No questions for this topic yet.</p>
+          <p className="quiz-empty-hint">
+            Try selecting a different topic from the dropdown above, or add
+            questions to this topic via the API.
+          </p>
+        </div>
       )}
 
-      {!loading && questions.length > 0 && !result && (
-        <>
-          <h3 className="section-title">📝 Quiz ({questions.length} questions)</h3>
-          <div className="questions">
-            {questions.map((q, idx) => (
-              <div key={q.id} className="question">
-                <div className="q-text">
-                  {idx + 1}. {q.question}
-                </div>
-                <div className="options">
-                  {["A", "B", "C", "D"].map((opt) => {
-                    const key = `option_${opt.toLowerCase()}`;
-                    return (
-                      <label
-                        key={opt}
-                        className={`option ${answers[q.id] === opt ? "selected" : ""}`}
-                      >
-                        <input
-                          type="radio"
-                          name={`q-${q.id}`}
-                          value={opt}
-                          checked={answers[q.id] === opt}
-                          onChange={() => handleAnswer(q.id, opt)}
-                        />
-                        <span className="opt-letter">{opt}.</span>
-                        <span>{q[key]}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <button onClick={handleSubmit} disabled={loading} className="btn-primary">
-            Submit Quiz
-          </button>
-        </>
-      )}
-
+      {/* ---------- RESULT ---------- */}
       {result && (
-        <div className="result-box">
-          <h3>🎯 Result</h3>
-          <div className="result-score">
-            {result.score_percent}%
-          </div>
+        <div className="quiz-result-box">
+          <h2>🎯 Result</h2>
+          <div className="quiz-result-score">{result.score_percent}%</div>
           <p>
-            You got <b>{result.correct}</b> out of <b>{result.total}</b> correct.
+            You got <b>{result.correct}</b> out of <b>{result.total}</b>{" "}
+            correct.
           </p>
-          <p className="perf-note">
-            Performance updated: score → <b>{result.updated_performance.new_score}%</b>{" "}
-            (attempts: {result.updated_performance.attempts})
+          <p className="quiz-perf-note">
+            Performance updated: score →{" "}
+            <b>{result.updated_performance.new_score}%</b> (attempts:{" "}
+            {result.updated_performance.attempts})
           </p>
 
-          <h4>Details</h4>
-          <div className="details">
+          <h3>Details</h3>
+          <div className="quiz-details">
             {result.details.map((d) => (
-              <div key={d.question_id} className={`detail ${d.is_correct ? "ok" : "bad"}`}>
+              <div
+                key={d.question_id}
+                className={`quiz-detail ${d.is_correct ? "ok" : "bad"}`}
+              >
                 <div>{d.question}</div>
-                <div className="detail-line">
-                  Your answer: <b>{d.your_answer || "—"}</b> · Correct: <b>{d.correct_answer}</b>
+                <div className="quiz-detail-line">
+                  Your answer: <b>{d.your_answer || "—"}</b> · Correct:{" "}
+                  <b>{d.correct_answer}</b>
                 </div>
               </div>
             ))}
           </div>
 
-          <button onClick={handleRetry} className="btn-primary">
-            Try Again
-          </button>
+          {/* Result actions */}
+          <div className="quiz-result-actions">
+            <button onClick={handleRetry} className="btn-secondary">
+              <RotateCcw size={15} />
+              Try Again
+            </button>
+            <button onClick={handleDone} className="btn-primary">
+              <Check size={15} />
+              Done — Try Another Topic
+            </button>
+          </div>
         </div>
       )}
     </div>

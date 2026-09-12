@@ -473,3 +473,349 @@ def ai_ask(req: AIAskRequest, db: Session = Depends(get_db)):
         "answer": answer,
         "context_topics": [t["topic_name"] for t in weak],
     }
+# ==================================================
+# DASHBOARD ANALYTICS
+# ==================================================
+from datetime import date as date_cls, timedelta
+
+
+@app.get("/analytics/dashboard/{student_id}")
+def dashboard_analytics(student_id: int, db: Session = Depends(get_db)):
+    student = db.query(models.Student).filter(models.Student.id == student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    today = str(date_cls.today())
+
+    # ---------- Subjects ----------
+    subjects = db.query(models.Subject).filter(
+        models.Subject.student_id == student_id
+    ).all()
+    total_subjects = len(subjects)
+
+    # ---------- All study plans ----------
+    all_plans = db.query(models.StudyPlan).filter(
+        models.StudyPlan.student_id == student_id
+    ).all()
+
+    total_plans = len(all_plans)
+    completed_plans = sum(1 for p in all_plans if p.completed)
+    study_progress = round(
+        (completed_plans / total_plans * 100) if total_plans else 0, 1
+    )
+
+    # ---------- Study time today ----------
+    today_plans = [p for p in all_plans if p.date == today]
+    study_time_today = sum(p.duration_minutes for p in today_plans if p.completed)
+
+    # ---------- Streak ----------
+    completed_dates = sorted(
+        {p.date for p in all_plans if p.completed}, reverse=True
+    )
+    streak = 0
+    if completed_dates:
+        date_set = set(completed_dates)
+        start = date_cls.fromisoformat(completed_dates[0])
+        # Allow streak to start from today or yesterday
+        if start >= date_cls.today() - timedelta(days=1):
+            cursor = start
+            while str(cursor) in date_set:
+                streak += 1
+                cursor = cursor - timedelta(days=1)
+
+    # ---------- Today's plan details ----------
+    plan_details = []
+    for p in today_plans:
+        topic = db.query(models.Topic).filter(models.Topic.id == p.topic_id).first()
+        if not topic:
+            continue
+        subject = db.query(models.Subject).filter(
+            models.Subject.id == topic.subject_id
+        ).first()
+        plan_details.append({
+            "plan_id": p.id,
+            "topic_name": topic.name,
+            "subject_name": subject.name if subject else "—",
+            "difficulty": topic.difficulty,
+            "duration_minutes": p.duration_minutes,
+            "completed": p.completed,
+        })
+
+    # ---------- Subject performance ----------
+    subject_performance = []
+    for subject in subjects:
+        topics = db.query(models.Topic).filter(
+            models.Topic.subject_id == subject.id
+        ).all()
+        if not topics:
+            subject_performance.append({
+                "subject_name": subject.name,
+                "avg_score": 0,
+                "topics_count": 0,
+            })
+            continue
+        total_score = 0.0
+        for topic in topics:
+            perf = db.query(models.Performance).filter(
+                models.Performance.student_id == student_id,
+                models.Performance.topic_id == topic.id,
+            ).first()
+            total_score += perf.score if perf else 0
+        avg = round(total_score / len(topics), 1)
+        subject_performance.append({
+            "subject_name": subject.name,
+            "avg_score": avg,
+            "topics_count": len(topics),
+        })
+
+    # ---------- AI recommendation (top priority topic) ----------
+    from recommendation import get_recommendations
+    recs = get_recommendations(student_id, db)
+    top_rec = recs[0] if recs else None
+    ai_recommendation = (
+        f"Focus on {top_rec['topic_name']} in {top_rec['subject_name']} today. "
+        f"{top_rec['reason']}"
+        if top_rec
+        else "Add some subjects and topics to get started."
+    )
+
+    return {
+        "student_id": student_id,
+        "student_name": student.name,
+        "study_progress": {
+            "percentage": study_progress,
+            "completed": completed_plans,
+            "total": total_plans,
+        },
+        "study_time_today_minutes": study_time_today,
+        "total_subjects": total_subjects,
+        "streak_days": streak,
+        "today_plan": plan_details,
+        "subject_performance": subject_performance,
+        "ai_recommendation": ai_recommendation,
+    }
+# ==================================================
+# SUBJECTS - ENRICHED + DELETE
+# ==================================================
+@app.get("/students/{student_id}/subjects/enriched")
+def get_enriched_subjects(student_id: int, db: Session = Depends(get_db)):
+    student = db.query(models.Student).filter(models.Student.id == student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    subjects = db.query(models.Subject).filter(
+        models.Subject.student_id == student_id
+    ).all()
+
+    result = []
+    for subject in subjects:
+        topics = db.query(models.Topic).filter(
+            models.Topic.subject_id == subject.id
+        ).all()
+
+        total_score = 0.0
+        for topic in topics:
+            perf = db.query(models.Performance).filter(
+                models.Performance.student_id == student_id,
+                models.Performance.topic_id == topic.id
+            ).first()
+            total_score += perf.score if perf else 0
+
+        avg = round(total_score / len(topics), 1) if topics else 0
+
+        result.append({
+            "id": subject.id,
+            "name": subject.name,
+            "student_id": subject.student_id,
+            "topic_count": len(topics),
+            "avg_score": avg,
+        })
+
+    return result
+
+
+@app.delete("/subjects/{subject_id}")
+def delete_subject(subject_id: int, db: Session = Depends(get_db)):
+    subject = db.query(models.Subject).filter(models.Subject.id == subject_id).first()
+    if not subject:
+        raise HTTPException(status_code=404, detail="Subject not found")
+    db.delete(subject)
+    db.commit()
+    return {"message": "Subject deleted", "id": subject_id}
+
+
+# ==================================================
+# TOPICS - ENRICHED + DELETE
+# ==================================================
+@app.get("/students/{student_id}/topics/enriched")
+def get_enriched_topics(student_id: int, db: Session = Depends(get_db)):
+    student = db.query(models.Student).filter(models.Student.id == student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    subjects = db.query(models.Subject).filter(
+        models.Subject.student_id == student_id
+    ).all()
+
+    result = []
+    for subject in subjects:
+        topics = db.query(models.Topic).filter(
+            models.Topic.subject_id == subject.id
+        ).all()
+
+        for topic in topics:
+            perf = db.query(models.Performance).filter(
+                models.Performance.student_id == student_id,
+                models.Performance.topic_id == topic.id
+            ).first()
+
+            result.append({
+                "id": topic.id,
+                "name": topic.name,
+                "difficulty": topic.difficulty,
+                "subject_id": subject.id,
+                "subject_name": subject.name,
+                "score": perf.score if perf else 0.0,
+                "attempts": perf.attempts if perf else 0,
+            })
+
+    return result
+
+
+@app.delete("/topics/{topic_id}")
+def delete_topic(topic_id: int, db: Session = Depends(get_db)):
+    topic = db.query(models.Topic).filter(models.Topic.id == topic_id).first()
+    if not topic:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    db.delete(topic)
+    db.commit()
+    return {"message": "Topic deleted", "id": topic_id}
+# ==================================================
+# PROGRESS ANALYTICS
+# ==================================================
+@app.get("/analytics/progress/{student_id}")
+def progress_analytics(student_id: int, db: Session = Depends(get_db)):
+    student = db.query(models.Student).filter(models.Student.id == student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    today = date_cls.today()
+
+    # ---------- Subjects & Topics ----------
+    subjects = db.query(models.Subject).filter(
+        models.Subject.student_id == student_id
+    ).all()
+
+    all_topics = []
+    subject_performance = []
+
+    for subject in subjects:
+        topics = db.query(models.Topic).filter(
+            models.Topic.subject_id == subject.id
+        ).all()
+
+        subject_total = 0.0
+        for topic in topics:
+            perf = db.query(models.Performance).filter(
+                models.Performance.student_id == student_id,
+                models.Performance.topic_id == topic.id
+            ).first()
+            score = perf.score if perf else 0.0
+            attempts = perf.attempts if perf else 0
+            subject_total += score
+
+            all_topics.append({
+                "id": topic.id,
+                "name": topic.name,
+                "subject_name": subject.name,
+                "difficulty": topic.difficulty,
+                "score": score,
+                "attempts": attempts,
+            })
+
+        avg = round(subject_total / len(topics), 1) if topics else 0.0
+        subject_performance.append({
+            "subject_name": subject.name,
+            "avg_score": avg,
+            "topic_count": len(topics),
+        })
+
+    # ---------- Overall stats ----------
+    avg_score = (
+        round(sum(t["score"] for t in all_topics) / len(all_topics), 1)
+        if all_topics else 0.0
+    )
+
+    all_plans = db.query(models.StudyPlan).filter(
+        models.StudyPlan.student_id == student_id
+    ).all()
+    completed_plans = sum(1 for p in all_plans if p.completed)
+    total_plans = len(all_plans)
+    study_hours = round(
+        sum(p.duration_minutes for p in all_plans if p.completed) / 60, 1
+    )
+
+    # ---------- Streak ----------
+    completed_dates = sorted(
+        {p.date for p in all_plans if p.completed}, reverse=True
+    )
+    streak = 0
+    if completed_dates:
+        date_set = set(completed_dates)
+        start = date_cls.fromisoformat(completed_dates[0])
+        if start >= date_cls.today() - timedelta(days=1):
+            cursor = start
+            while str(cursor) in date_set:
+                streak += 1
+                cursor = cursor - timedelta(days=1)
+
+    # ---------- Score trend (last 6 weeks) ----------
+    # Aggregate average quiz score per ISO week
+    quiz_results = db.query(models.QuizResult).filter(
+        models.QuizResult.student_id == student_id
+    ).all()
+
+    trend_map = {}
+    for qr in quiz_results:
+        try:
+            d = date_cls.fromisoformat(qr.date)
+        except Exception:
+            continue
+        week_key = d - timedelta(days=d.weekday())  # Monday of that week
+        key = str(week_key)
+        trend_map.setdefault(key, []).append(qr.score)
+
+    score_trend = [
+        {"week": k, "avg_score": round(sum(v) / len(v), 1)}
+        for k, v in sorted(trend_map.items())
+    ][-6:]  # last 6 weeks
+
+    # ---------- Quiz accuracy ----------
+    total_questions = sum(qr.total_questions for qr in quiz_results)
+    total_correct = sum(
+        round((qr.score / 100) * qr.total_questions) for qr in quiz_results
+    )
+    total_wrong = max(total_questions - total_correct, 0)
+
+    # ---------- Weakest topics (bottom 5) ----------
+    weakest = sorted(all_topics, key=lambda x: x["score"])[:5]
+
+    return {
+        "student_id": student_id,
+        "student_name": student.name,
+        "overall": {
+            "avg_score": avg_score,
+            "study_hours": study_hours,
+            "tasks_completed": completed_plans,
+            "total_tasks": total_plans,
+            "streak_days": streak,
+        },
+        "subject_performance": subject_performance,
+        "score_trend": score_trend,
+        "quiz_accuracy": {
+            "correct": total_correct,
+            "wrong": total_wrong,
+            "total": total_questions,
+        },
+        "weakest_topics": weakest,
+    }

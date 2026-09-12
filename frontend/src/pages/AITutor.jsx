@@ -50,8 +50,7 @@ export default function AITutor() {
       ]);
     } catch (err) {
       setError(
-        err.response?.data?.detail ||
-          "AI Tutor failed. Check the backend logs."
+        err.response?.data?.detail || "AI Tutor failed. Check the backend logs."
       );
     } finally {
       setLoading(false);
@@ -74,23 +73,26 @@ export default function AITutor() {
   return (
     <div className="tutor-page">
       <div className="tutor-header">
-        <h2>🤖 AI Tutor</h2>
-        <div className="row">
-          <label>Student:</label>
-          <select
-            value={selectedId || ""}
-            onChange={(e) => setSelectedId(Number(e.target.value))}
-          >
-            {students.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name} ({s.course})
-              </option>
-            ))}
-          </select>
+        <div>
+          <h1 className="tutor-title">🤖 AI Tutor</h1>
+          <p className="tutor-subtitle">
+            Ask anything about your studies. The tutor knows your weak topics.
+          </p>
         </div>
+        <select
+          className="tutor-student-select"
+          value={selectedId || ""}
+          onChange={(e) => setSelectedId(Number(e.target.value))}
+        >
+          {students.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name} ({s.course})
+            </option>
+          ))}
+        </select>
       </div>
 
-      {error && <div className="error">{error}</div>}
+      {error && <div className="tutor-error">{error}</div>}
 
       <div className="chat-window">
         {messages.length === 0 && (
@@ -130,7 +132,9 @@ export default function AITutor() {
           <div className="bubble assistant">
             <div className="bubble-label">🤖 AI Tutor</div>
             <div className="bubble-content typing">
-              <span></span><span></span><span></span>
+              <span></span>
+              <span></span>
+              <span></span>
             </div>
           </div>
         )}
