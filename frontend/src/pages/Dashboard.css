@@ -26,27 +26,6 @@
   font-size: 14px;
 }
 
-.dash-student-picker {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.dash-student-picker label {
-  font-size: 13px;
-  color: var(--text-muted);
-}
-
-.dash-student-picker select {
-  padding: 8px 12px;
-  font-size: 13.5px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--text);
-  cursor: pointer;
-}
-
 /* ---------- STAT CARDS ---------- */
 .dash-stats {
   display: grid;
@@ -114,6 +93,14 @@
   color: var(--text);
 }
 
+.stat-ok {
+  color: var(--success);
+}
+
+.stat-risk {
+  color: var(--danger);
+}
+
 .stat-info-strong {
   font-size: 15px;
   font-weight: 700;
@@ -155,19 +142,7 @@
   gap: 2px;
 }
 
-/* ---------- TWO COLUMN ---------- */
-.dash-columns {
-  display: grid;
-  grid-template-columns: 1.4fr 1fr;
-  gap: 16px;
-}
-
-@media (max-width: 900px) {
-  .dash-columns {
-    grid-template-columns: 1fr;
-  }
-}
-
+/* ---------- PANEL ---------- */
 .panel {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -200,19 +175,16 @@
   text-decoration: underline;
 }
 
-/* ---------- PLAN LIST ---------- */
-.plan-list-dash {
-  list-style: none;
-  padding: 0;
-  margin: 0;
+/* ---------- RECOMMENDATIONS WIDGET ---------- */
+.dash-recs {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-.plan-row {
+.dash-rec-item {
   display: flex;
-  justify-content: space-between;
+  gap: 12px;
   align-items: center;
   padding: 12px 14px;
   border-radius: var(--radius-sm);
@@ -220,53 +192,60 @@
   border: 1px solid var(--border);
 }
 
-.plan-row.done {
-  opacity: 0.7;
-}
-
-.plan-row-left {
+.dash-rec-rank {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: white;
   display: flex;
-  gap: 12px;
   align-items: center;
-}
-
-.check-icon {
-  color: var(--success);
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 800;
   flex-shrink: 0;
 }
 
-.circle-icon {
-  color: var(--text-muted);
-  flex-shrink: 0;
+.dash-rec-body {
+  flex: 1;
+  min-width: 0;
 }
 
-.plan-row-title {
+.dash-rec-name {
   font-size: 13.5px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text);
+  margin-bottom: 2px;
 }
 
-.plan-row-meta {
+.dash-rec-reason {
   font-size: 12px;
   color: var(--text-muted);
-  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.pill {
-  font-size: 11px;
+.dash-rec-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-end;
+  flex-shrink: 0;
+}
+
+.dash-rec-min {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.dash-rec-activity {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
   font-weight: 600;
-  padding: 4px 10px;
-  border-radius: 12px;
-}
-
-.pill-done {
-  background: var(--success-light);
-  color: var(--success);
-}
-
-.pill-pending {
-  background: var(--warning-light);
-  color: var(--warning);
 }
 
 /* ---------- PERFORMANCE ---------- */
@@ -349,6 +328,7 @@
   line-height: 1.5;
 }
 
+/* ---------- MISC ---------- */
 .dash-muted {
   color: var(--text-muted);
 }
@@ -360,76 +340,4 @@
   border-radius: var(--radius-sm);
   font-size: 13.5px;
   border: 1px solid var(--danger);
-}
-/* ---------- Dashboard Recommendations Widget ---------- */
-.dash-recs {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.dash-rec-item {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  padding: 12px 14px;
-  border-radius: var(--radius-sm);
-  background: var(--surface-alt);
-  border: 1px solid var(--border);
-}
-
-.dash-rec-rank {
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  background: var(--primary);
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  font-weight: 800;
-  flex-shrink: 0;
-}
-
-.dash-rec-body {
-  flex: 1;
-  min-width: 0;
-}
-
-.dash-rec-name {
-  font-size: 13.5px;
-  font-weight: 700;
-  color: var(--text);
-  margin-bottom: 2px;
-}
-
-.dash-rec-reason {
-  font-size: 12px;
-  color: var(--text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.dash-rec-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  align-items: flex-end;
-  flex-shrink: 0;
-}
-
-.dash-rec-min {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--primary);
-}
-
-.dash-rec-activity {
-  font-size: 10.5px;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-  font-weight: 600;
 }

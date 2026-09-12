@@ -1,85 +1,53 @@
 import { useEffect, useState } from "react";
 import {
-  getStudents,
   getDashboardAnalytics,
   getRecommendationsList,
 } from "../api/client";
+import { useAuth } from "../context/AuthContext";
 import {
-  BookOpen,
-  Clock,
-  Flame,
+  Target,
   TrendingUp,
+  CheckCircle2,
+  AlertTriangle,
   Sparkles,
 } from "lucide-react";
 import "./Dashboard.css";
 
 export default function Dashboard() {
-  const [students, setStudents] = useState([]);
-  const [selectedId, setSelectedId] = useState(null);
+  const { user } = useAuth();
   const [data, setData] = useState(null);
   const [recs, setRecs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    getStudents()
-      .then((res) => {
-        setStudents(res.data);
-        if (res.data.length > 0) setSelectedId(res.data[0].id);
-      })
-      .catch(() =>
-        setError("Could not load students. Is the backend running?")
-      );
-  }, []);
-
-  useEffect(() => {
-    if (!selectedId) return;
+    if (!user?.student_id) return;
     setLoading(true);
     setError("");
-    getDashboardAnalytics(selectedId)
+    getDashboardAnalytics(user.student_id)
       .then((res) => setData(res.data))
       .catch(() => setError("Failed to load dashboard data"))
       .finally(() => setLoading(false));
-  }, [selectedId]);
+  }, [user?.student_id]);
 
   useEffect(() => {
-    if (!selectedId) return;
-    getRecommendationsList(selectedId)
+    if (!user?.student_id) return;
+    getRecommendationsList(user.student_id)
       .then((res) => setRecs(res.data.recommendations.slice(0, 3)))
       .catch(() => setRecs([]));
-  }, [selectedId]);
-
-  const formatMinutes = (m) => {
-    if (m < 60) return `${m}m`;
-    const h = Math.floor(m / 60);
-    const min = m % 60;
-    return min > 0 ? `${h}h ${min}m` : `${h}h`;
-  };
+  }, [user?.student_id]);
 
   return (
     <div className="dashboard">
       {error && <div className="dash-error">{error}</div>}
 
-      {/* ---------- GREETING ---------- */}
+      {/* GREETING */}
       <div className="dash-greeting-row">
         <div>
           <h1 className="dash-title">
-            Good Morning, {data?.student_name || "Student"} 👋
+            Good Morning, {user?.name || "Student"} 👋
           </h1>
           <p className="dash-subtitle">Keep going. You're doing great.</p>
-        </div>
-        <div className="dash-student-picker">
-          <label>Student:</label>
-          <select
-            value={selectedId || ""}
-            onChange={(e) => setSelectedId(Number(e.target.value))}
-          >
-            {students.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name} ({s.course})
-              </option>
-            ))}
-          </select>
         </div>
       </div>
 
@@ -87,14 +55,14 @@ export default function Dashboard() {
 
       {data && (
         <>
-          {/* ---------- STAT CARDS ---------- */}
+          {/* STAT CARDS */}
           <div className="dash-stats">
-            {/* Study Progress (from completed plans) */}
+            {/* Concepts Tested */}
             <div className="stat-card">
               <div className="stat-top">
-                <span className="stat-label">Study Progress</span>
+                <span className="stat-label">Concepts Tested</span>
                 <span className="stat-icon stat-icon-blue">
-                  <TrendingUp size={16} />
+                  <Target size={16} />
                 </span>
               </div>
               <div className="stat-row">
@@ -117,67 +85,76 @@ export default function Dashboard() {
                       strokeWidth="5"
                       strokeLinecap="round"
                       strokeDasharray={`${
-                        (data.study_progress.percentage / 100) * 138.2
+                        data.total_concepts > 0
+                          ? (data.concepts_tested / data.total_concepts) * 138.2
+                          : 0
                       } 138.2`}
                       transform="rotate(-90 28 28)"
                     />
                   </svg>
                   <div className="progress-ring-text">
-                    {Math.round(data.study_progress.percentage)}%
+                    {data.total_concepts > 0
+                      ? Math.round(
+                          (data.concepts_tested / data.total_concepts) * 100
+                        )
+                      : 0}
+                    %
                   </div>
                 </div>
                 <div className="stat-info">
                   <div className="stat-info-strong">
-                    {data.study_progress.completed} of{" "}
-                    {data.study_progress.total}
+                    {data.concepts_tested} of {data.total_concepts}
                   </div>
-                  <div className="stat-info-muted">tasks completed</div>
+                  <div className="stat-info-muted">concepts tested</div>
                 </div>
               </div>
             </div>
 
-            {/* Study Time */}
+            {/* Average Score */}
             <div className="stat-card">
               <div className="stat-top">
-                <span className="stat-label">Study Time Today</span>
+                <span className="stat-label">Average Score</span>
                 <span className="stat-icon stat-icon-green">
-                  <Clock size={16} />
+                  <TrendingUp size={16} />
                 </span>
               </div>
-              <div className="stat-value">
-                {formatMinutes(data.study_time_today_minutes)}
-              </div>
-              <div className="stat-info-muted">completed so far</div>
-            </div>
-
-            {/* Total Subjects */}
-            <div className="stat-card">
-              <div className="stat-top">
-                <span className="stat-label">Total Subjects</span>
-                <span className="stat-icon stat-icon-purple">
-                  <BookOpen size={16} />
-                </span>
-              </div>
-              <div className="stat-value">{data.total_subjects}</div>
-              <div className="stat-info-muted">across your courses</div>
-            </div>
-
-            {/* Streak */}
-            <div className="stat-card">
-              <div className="stat-top">
-                <span className="stat-label">Current Streak</span>
-                <span className="stat-icon stat-icon-orange">
-                  <Flame size={16} />
-                </span>
-              </div>
-              <div className="stat-value">{data.streak_days} Days</div>
+              <div className="stat-value">{data.avg_score}%</div>
               <div className="stat-info-muted">
-                {data.streak_days > 0 ? "Keep it up!" : "Start one today"}
+                across {data.concepts_tested} concept
+                {data.concepts_tested === 1 ? "" : "s"}
               </div>
+            </div>
+
+            {/* Strong Concepts */}
+            <div className="stat-card">
+              <div className="stat-top">
+                <span className="stat-label">Strong Concepts</span>
+                <span className="stat-icon stat-icon-green">
+                  <CheckCircle2 size={16} />
+                </span>
+              </div>
+              <div className="stat-value stat-ok">
+                {data.strong_concepts}
+              </div>
+              <div className="stat-info-muted">scoring ≥ 75%</div>
+            </div>
+
+            {/* Weak Concepts */}
+            <div className="stat-card">
+              <div className="stat-top">
+                <span className="stat-label">Weak Concepts</span>
+                <span className="stat-icon stat-icon-orange">
+                  <AlertTriangle size={16} />
+                </span>
+              </div>
+              <div className="stat-value stat-risk">
+                {data.weak_concepts}
+              </div>
+              <div className="stat-info-muted">need attention</div>
             </div>
           </div>
 
-          {/* ---------- RECOMMENDED FOR YOU ---------- */}
+          {/* RECOMMENDED FOR YOU */}
           {recs.length > 0 && (
             <div className="panel">
               <div className="panel-header">
@@ -208,7 +185,7 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* ---------- YOUR PERFORMANCE ---------- */}
+          {/* YOUR PERFORMANCE */}
           <div className="panel">
             <div className="panel-header">
               <h2 className="panel-title">Your Performance</h2>
@@ -236,7 +213,7 @@ export default function Dashboard() {
             )}
           </div>
 
-          {/* ---------- AI RECOMMENDATION ---------- */}
+          {/* AI RECOMMENDATION */}
           <div className="ai-reco-card">
             <div className="ai-reco-icon">
               <Sparkles size={20} />

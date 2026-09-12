@@ -1,75 +1,59 @@
 import { useEffect, useState, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
-  getStudents,
-  getRecommendations,
+  getEnrichedTopics,
   generateTest,
   submitTest,
 } from "../api/client";
+import { useAuth } from "../context/AuthContext";
 import {
-  Clock,
-  SkipForward,
-  ArrowRight,
-  Check,
-  Sparkles,
-  RefreshCw,
-  TrendingUp,
-  TrendingDown,
-  Minus,
+  Clock, SkipForward, ArrowRight, Check, Sparkles, RefreshCw,
+  TrendingUp, TrendingDown, Minus,
 } from "lucide-react";
 import "./Quiz.css";
 
 export default function Quiz() {
-  const [students, setStudents] = useState([]);
-  const [selectedId, setSelectedId] = useState(null);
+  const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+
   const [topics, setTopics] = useState([]);
   const [selectedTopic, setSelectedTopic] = useState(null);
-
   const [questions, setQuestions] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState({});
   const [result, setResult] = useState(null);
-
   const [generating, setGenerating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [seconds, setSeconds] = useState(0);
   const timerRef = useRef(null);
 
-  // Load students
   useEffect(() => {
-    getStudents()
+    if (!user?.student_id) return;
+    getEnrichedTopics(user.student_id)
       .then((res) => {
-        setStudents(res.data);
-        if (res.data.length > 0) setSelectedId(res.data[0].id);
-      })
-      .catch(() => setError("Could not load students."));
-  }, []);
-
-  // Load topics
-  useEffect(() => {
-    if (!selectedId) return;
-    getRecommendations(selectedId)
-      .then((res) => {
-        setTopics(res.data.recommendations);
+        const list = res.data || [];
+        setTopics(list);
+        const urlTopic = Number(searchParams.get("topic"));
+        const fromUrl = list.find((t) => t.id === urlTopic);
+        const pick = fromUrl || list[0];
+        if (pick) setSelectedTopic(pick.id);
         setResult(null);
         setAnswers({});
         setQuestions([]);
         setCurrentIndex(0);
-        if (res.data.recommendations.length > 0) {
-          setSelectedTopic(res.data.recommendations[0].topic_id);
-        }
+        setSeconds(0);
       })
       .catch(() => setError("Failed to load topics"));
-  }, [selectedId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.student_id]);
 
-  // Auto-generate on topic change
   useEffect(() => {
     if (!selectedTopic) return;
     handleGenerate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTopic]);
 
-  // Timer
   useEffect(() => {
     if (questions.length === 0 || result) {
       if (timerRef.current) clearInterval(timerRef.current);
@@ -78,6 +62,11 @@ export default function Quiz() {
     timerRef.current = setInterval(() => setSeconds((s) => s + 1), 1000);
     return () => clearInterval(timerRef.current);
   }, [questions.length, result]);
+
+  const handleTopicChange = (newId) => {
+    setSelectedTopic(newId);
+    setSearchParams({ topic: newId });
+  };
 
   const handleGenerate = async () => {
     if (!selectedTopic) return;
@@ -92,10 +81,7 @@ export default function Quiz() {
       const res = await generateTest(selectedTopic, 6);
       setQuestions(res.data.questions);
     } catch (err) {
-      setError(
-        err.response?.data?.detail ||
-          "Test generation failed. Try again in a moment."
-      );
+      setError(err.response?.data?.detail || "Test generation failed.");
     } finally {
       setGenerating(false);
     }
@@ -107,22 +93,16 @@ export default function Quiz() {
     return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
   };
 
-  const handleAnswer = (qid, option) => {
+  const handleAnswer = (qid, option) =>
     setAnswers((prev) => ({ ...prev, [qid]: option }));
-  };
 
   const handleNext = () => {
-    if (currentIndex < questions.length - 1) {
-      setCurrentIndex((i) => i + 1);
-    } else {
-      handleSubmit();
-    }
+    if (currentIndex < questions.length - 1) setCurrentIndex((i) => i + 1);
+    else handleSubmit();
   };
 
   const handleSkip = () => {
-    if (currentIndex < questions.length - 1) {
-      setCurrentIndex((i) => i + 1);
-    }
+    if (currentIndex < questions.length - 1) setCurrentIndex((i) => i + 1);
   };
 
   const handlePrev = () => {
@@ -137,7 +117,7 @@ export default function Quiz() {
     setSubmitting(true);
     setError("");
     try {
-      const res = await submitTest(selectedId, answers);
+      const res = await submitTest(user.student_id, answers);
       setResult(res.data);
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to submit test");
@@ -153,10 +133,9 @@ export default function Quiz() {
     setSeconds(0);
   };
 
-  const currentTopic = topics.find((t) => t.topic_id === selectedTopic);
+  const currentTopic = topics.find((t) => t.id === selectedTopic);
   const currentQuestion = questions[currentIndex];
-  const progress =
-    questions.length > 0 ? ((currentIndex + 1) / questions.length) * 100 : 0;
+  const progress = questions.length > 0 ? ((currentIndex + 1) / questions.length) * 100 : 0;
 
   const trendIcon = (trend) => {
     if (trend === "improving") return <TrendingUp size={12} />;
@@ -174,11 +153,10 @@ export default function Quiz() {
     <div className="quiz-page">
       {error && <div className="quiz-error">{error}</div>}
 
-      {/* HEADER */}
       <div className="quiz-header">
         <div>
           <h1 className="quiz-title">
-            {currentTopic ? `${currentTopic.topic_name} Test` : "Conceptual Test"}
+            {currentTopic ? `${currentTopic.name} Test` : "Conceptual Test"}
           </h1>
           <p className="quiz-subtitle">
             Concept-aware questions — find out exactly what you understand.
@@ -187,23 +165,14 @@ export default function Quiz() {
 
         <div className="quiz-controls">
           <select
-            value={selectedId || ""}
-            onChange={(e) => setSelectedId(Number(e.target.value))}
-          >
-            {students.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name} ({s.course})
-              </option>
-            ))}
-          </select>
-
-          <select
             value={selectedTopic || ""}
-            onChange={(e) => setSelectedTopic(Number(e.target.value))}
+            onChange={(e) => handleTopicChange(Number(e.target.value))}
           >
+            {topics.length === 0 && <option value="">No topics yet</option>}
             {topics.map((t) => (
-              <option key={t.topic_id} value={t.topic_id}>
-                {t.subject_name} → {t.topic_name} ({t.score}%)
+              <option key={t.id} value={t.id}>
+                {t.subject_name} → {t.name}
+                {t.score > 0 ? ` (${t.score}%)` : ""}
               </option>
             ))}
           </select>
@@ -212,7 +181,6 @@ export default function Quiz() {
             className="btn-regenerate"
             onClick={handleGenerate}
             disabled={generating || !selectedTopic}
-            title="Generate fresh questions"
           >
             <RefreshCw size={14} className={generating ? "spin" : ""} />
             {generating ? "Generating..." : "New Questions"}
@@ -220,7 +188,6 @@ export default function Quiz() {
         </div>
       </div>
 
-      {/* GENERATING STATE */}
       {generating && (
         <div className="quiz-generating">
           <div className="ai-loading">
@@ -230,7 +197,6 @@ export default function Quiz() {
         </div>
       )}
 
-      {/* QUIZ BODY */}
       {!generating && !result && questions.length > 0 && currentQuestion && (
         <div className="quiz-body">
           <div className="quiz-main">
@@ -245,10 +211,7 @@ export default function Quiz() {
             </div>
 
             <div className="quiz-progress-bar">
-              <div
-                className="quiz-progress-fill"
-                style={{ width: `${progress}%` }}
-              />
+              <div className="quiz-progress-fill" style={{ width: `${progress}%` }} />
             </div>
 
             <div className="quiz-question-card">
@@ -257,20 +220,15 @@ export default function Quiz() {
                 {currentQuestion.question_type || "conceptual"} ·{" "}
                 {currentQuestion.difficulty}
               </div>
-
               <h2 className="quiz-q-text">
                 {currentIndex + 1}. {currentQuestion.question}
               </h2>
-
               <div className="quiz-options">
                 {["A", "B", "C", "D"].map((opt) => {
                   const key = `option_${opt.toLowerCase()}`;
                   const selected = answers[currentQuestion.id] === opt;
                   return (
-                    <label
-                      key={opt}
-                      className={`quiz-option ${selected ? "selected" : ""}`}
-                    >
+                    <label key={opt} className={`quiz-option ${selected ? "selected" : ""}`}>
                       <span className="quiz-opt-radio">
                         {selected && <span className="quiz-opt-radio-inner" />}
                       </span>
@@ -281,9 +239,7 @@ export default function Quiz() {
                         checked={selected}
                         onChange={() => handleAnswer(currentQuestion.id, opt)}
                       />
-                      <span className="quiz-opt-text">
-                        {currentQuestion[key]}
-                      </span>
+                      <span className="quiz-opt-text">{currentQuestion[key]}</span>
                     </label>
                   );
                 })}
@@ -298,24 +254,16 @@ export default function Quiz() {
               >
                 ← Previous
               </button>
-
               <div className="quiz-nav-right">
                 <button className="btn-skip" onClick={handleSkip}>
-                  <SkipForward size={14} />
-                  Skip
+                  <SkipForward size={14} /> Skip
                 </button>
-
                 {currentIndex < questions.length - 1 ? (
                   <button className="btn-primary" onClick={handleNext}>
-                    Next
-                    <ArrowRight size={14} />
+                    Next <ArrowRight size={14} />
                   </button>
                 ) : (
-                  <button
-                    className="btn-primary"
-                    onClick={handleNext}
-                    disabled={submitting}
-                  >
+                  <button className="btn-primary" onClick={handleNext} disabled={submitting}>
                     <Check size={14} />
                     {submitting ? "Submitting..." : "Submit"}
                   </button>
@@ -324,39 +272,29 @@ export default function Quiz() {
             </div>
           </div>
 
-          {/* INFO PANEL */}
           <aside className="quiz-info">
             <h3 className="quiz-info-title">Test Info</h3>
             <div className="quiz-info-item">
-              <span>Topic</span>
-              <b>{currentTopic?.topic_name}</b>
+              <span>Topic</span><b>{currentTopic?.name}</b>
             </div>
             <div className="quiz-info-item">
-              <span>Subject</span>
-              <b>{currentTopic?.subject_name}</b>
+              <span>Subject</span><b>{currentTopic?.subject_name}</b>
             </div>
             <div className="quiz-info-item">
               <span>Difficulty</span>
-              <b style={{ textTransform: "capitalize" }}>
-                {currentTopic?.difficulty}
-              </b>
+              <b style={{ textTransform: "capitalize" }}>{currentTopic?.difficulty}</b>
             </div>
             <div className="quiz-info-item">
-              <span>Total Questions</span>
-              <b>{questions.length}</b>
+              <span>Total Questions</span><b>{questions.length}</b>
             </div>
             <div className="quiz-info-item">
-              <span>Answered</span>
-              <b>{Object.keys(answers).length}</b>
+              <span>Answered</span><b>{Object.keys(answers).length}</b>
             </div>
-
             {currentQuestion.concepts?.length > 0 && (
               <div className="quiz-info-concepts">
                 <div className="quiz-info-subtitle">This question tests</div>
                 {currentQuestion.concepts.map((c) => (
-                  <span key={c.id} className="quiz-concept-chip">
-                    {c.name}
-                  </span>
+                  <span key={c.id} className="quiz-concept-chip">{c.name}</span>
                 ))}
               </div>
             )}
@@ -364,14 +302,14 @@ export default function Quiz() {
         </div>
       )}
 
-      {/* EMPTY */}
       {!generating && !result && questions.length === 0 && !error && (
         <p className="quiz-empty">
-          Select a topic to generate concept-aware questions.
+          {topics.length === 0
+            ? "Search for a topic first to unlock testing."
+            : "Select a topic to generate concept-aware questions."}
         </p>
       )}
 
-      {/* RESULT */}
       {result && (
         <div className="quiz-result-box">
           <div className="result-header">
@@ -386,84 +324,54 @@ export default function Quiz() {
             </div>
           </div>
 
-          {/* Concept-level breakdown */}
           {result.concepts && result.concepts.length > 0 && (
             <div className="result-concepts">
-              <h3 className="result-section-title">
-                🧠 Concept Breakdown
-              </h3>
+              <h3 className="result-section-title">🧠 Concept Breakdown</h3>
               <p className="result-section-sub">
                 Sorted weakest first — this is where you need the most work.
               </p>
-
               {result.concepts.map((c) => (
                 <div key={c.concept_id} className="concept-result">
                   <div className="concept-result-header">
-                    <span className="concept-result-name">
-                      {c.concept_name}
-                    </span>
+                    <span className="concept-result-name">{c.concept_name}</span>
                     <div className="concept-result-right">
-                      <span
-                        className={`concept-trend trend-${c.trend}`}
-                        title={`Trend: ${c.trend}`}
-                      >
-                        {trendIcon(c.trend)}
-                        {c.trend}
+                      <span className={`concept-trend trend-${c.trend}`}>
+                        {trendIcon(c.trend)}{c.trend}
                       </span>
-                      <span
-                        className={`concept-score-badge ${conceptColor(
-                          c.session_score
-                        )}`}
-                      >
+                      <span className={`concept-score-badge ${conceptColor(c.session_score)}`}>
                         {c.session_score}%
                       </span>
                     </div>
                   </div>
                   <div className="concept-result-bar">
                     <div
-                      className={`concept-result-fill ${conceptColor(
-                        c.session_score
-                      )}`}
+                      className={`concept-result-fill ${conceptColor(c.session_score)}`}
                       style={{ width: `${c.session_score}%` }}
                     />
                   </div>
                   <div className="concept-result-meta">
                     This session: <b>{c.session_correct}/{c.session_total}</b>
-                    {" · "}
-                    Overall: <b>{c.overall_score}%</b> (
-                    {c.overall_attempts} attempts · confidence{" "}
-                    {Math.round(c.confidence * 100)}%)
+                    {" · "}Overall: <b>{c.overall_score}%</b> (
+                    {c.overall_attempts} attempts · confidence {Math.round(c.confidence * 100)}%)
                   </div>
                 </div>
               ))}
             </div>
           )}
 
-          {/* Per-question details */}
           <div className="result-questions">
             <h3 className="result-section-title">📝 Question Review</h3>
-
             {result.details.map((d) => (
-              <div
-                key={d.question_id}
-                className={`quiz-detail ${d.is_correct ? "ok" : "bad"}`}
-              >
+              <div key={d.question_id} className={`quiz-detail ${d.is_correct ? "ok" : "bad"}`}>
                 <div className="quiz-detail-q">{d.question}</div>
                 <div className="quiz-detail-line">
-                  Your answer: <b>{d.your_answer || "—"}</b> · Correct:{" "}
-                  <b>{d.correct_answer}</b>
+                  Your answer: <b>{d.your_answer || "—"}</b> · Correct: <b>{d.correct_answer}</b>
                 </div>
-                {d.explanation && (
-                  <div className="quiz-detail-expl">
-                    💡 {d.explanation}
-                  </div>
-                )}
+                {d.explanation && <div className="quiz-detail-expl">💡 {d.explanation}</div>}
                 {d.concepts?.length > 0 && (
                   <div className="quiz-detail-concepts">
                     {d.concepts.map((cn, i) => (
-                      <span key={i} className="quiz-concept-chip">
-                        {cn}
-                      </span>
+                      <span key={i} className="quiz-concept-chip">{cn}</span>
                     ))}
                   </div>
                 )}
@@ -472,12 +380,9 @@ export default function Quiz() {
           </div>
 
           <div className="quiz-result-actions">
-            <button onClick={handleRetry} className="btn-primary">
-              Review Answers
-            </button>
+            <button onClick={handleRetry} className="btn-primary">Review Answers</button>
             <button onClick={handleGenerate} className="btn-secondary">
-              <RefreshCw size={14} />
-              Generate New Test
+              <RefreshCw size={14} /> Generate New Test
             </button>
           </div>
         </div>

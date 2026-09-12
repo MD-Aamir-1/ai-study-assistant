@@ -250,3 +250,90 @@
   font-size: 13.5px;
   border: 1px solid var(--danger);
 }
+/* ---------- ML Badges ---------- */
+.gap-item-risk {
+  border-left: 3px solid var(--danger);
+}
+
+.gap-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.gap-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.ml-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  white-space: nowrap;
+}
+
+.ml-badge-risk {
+  background: var(--danger-light);
+  color: var(--danger);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.ml-badge-ok {
+  background: var(--success-light);
+  color: var(--success);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+/* ---------- ML Summary Strip ---------- */
+.ml-summary-strip {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 16px 20px;
+  border-radius: var(--radius);
+  background: linear-gradient(
+    135deg,
+    rgba(239, 68, 68, 0.06),
+    rgba(139, 92, 246, 0.08)
+  );
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+.ml-summary-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--danger), var(--purple));
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.ml-summary-title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--danger);
+  margin-bottom: 4px;
+}
+
+.ml-summary-text {
+  font-size: 13.5px;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.ml-summary-text b {
+  color: var(--danger);
+}

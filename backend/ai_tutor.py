@@ -1,12 +1,12 @@
 """
-AI Tutor: uses Groq's Llama 3 with the student's weak topics as context.
+AI Tutor: uses Groq's Llama 3 with the student's weak CONCEPTS as context.
 """
 
 import os
+import json
 from dotenv import load_dotenv
 from groq import Groq
 
-# Load .env from the backend folder
 load_dotenv()
 
 _client = None
@@ -34,29 +34,43 @@ Rules:
 - Keep responses concise (under 250 words unless the student asks for more).
 - End with one short follow-up question to check understanding.
 - Be encouraging, not condescending.
+
+When the student has known weak concepts (listed below), tailor your explanations
+to address those specifically. If they ask about something in their weak list,
+go deeper and use simpler language.
 """
 
 
-def ask_tutor(question: str, weak_topics: list[dict]) -> str:
+def ask_tutor(question: str, weak_concepts: list[dict]) -> str:
     """
-    weak_topics: list of dicts with keys: topic_name, subject_name, score, difficulty
+    weak_concepts: list of dicts with keys:
+        concept_name, topic_name, subject_name, score, trend, attempts
     """
     client = get_client()
 
-    # Build student context
-    if weak_topics:
-        context_lines = [
-            f"- {t['topic_name']} (in {t['subject_name']}, "
-            f"score {t['score']}%, difficulty {t['difficulty']})"
-            for t in weak_topics[:5]
-        ]
+    # Build student context — concept-level
+    if weak_concepts:
+        context_lines = []
+        for c in weak_concepts[:6]:
+            trend_note = ""
+            if c.get("trend") == "declining":
+                trend_note = " [declining]"
+            elif c.get("trend") == "improving":
+                trend_note = " [improving]"
+
+            context_lines.append(
+                f"- {c['concept_name']} (in topic '{c['topic_name']}', "
+                f"subject '{c['subject_name']}', score {c['score']}%{trend_note})"
+            )
+
         context = (
-            "The student is currently struggling with these topics:\n"
+            "The student is currently struggling with these specific CONCEPTS:\n"
             + "\n".join(context_lines)
-            + "\n\nKeep this context in mind when answering."
+            + "\n\nKeep this context in mind. When relevant, connect your answer "
+            "to these concepts and use them as examples."
         )
     else:
-        context = "This student has no recorded weak topics yet."
+        context = "This student has no recorded weak concepts yet."
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -65,15 +79,18 @@ def ask_tutor(question: str, weak_topics: list[dict]) -> str:
     ]
 
     response = client.chat.completions.create(
-        model="openai/gpt-oss-120b",   # currently supported Groq model
+        model="openai/gpt-oss-120b",
         messages=messages,
         temperature=0.7,
         max_tokens=800,
     )
 
     return response.choices[0].message.content
-import json
 
+
+# ==================================================
+# DYNAMIC QUIZ GENERATION (existing)
+# ==================================================
 QUIZ_GEN_PROMPT = """You are an expert educator creating multiple-choice questions to test CONCEPTUAL understanding.
 
 Generate {num} multiple-choice questions on the topic "{topic}" (subject: "{subject}") at {difficulty} difficulty level.
@@ -110,7 +127,7 @@ def generate_quiz_questions(
     difficulty: str,
     num_questions: int = 5,
 ) -> list[dict]:
-    """Generate fresh conceptual MCQs using Groq."""
+    """Generate fresh conceptual MCQs using Groq (legacy — kept for compatibility)."""
     client = get_client()
 
     prompt = QUIZ_GEN_PROMPT.format(
@@ -135,14 +152,12 @@ def generate_quiz_questions(
 
     content = response.choices[0].message.content.strip()
 
-    # Strip markdown fences if model added them anyway
     if content.startswith("```"):
         content = content.split("```")[1]
         if content.lower().startswith("json"):
             content = content[4:]
         content = content.strip()
 
-    # Find the JSON array boundaries (in case of stray text)
     start = content.find("[")
     end = content.rfind("]")
     if start != -1 and end != -1:
@@ -156,7 +171,6 @@ def generate_quiz_questions(
     if not isinstance(questions, list) or len(questions) == 0:
         raise RuntimeError("Groq returned no questions")
 
-    # Validate structure
     cleaned = []
     for q in questions:
         if not all(k in q for k in ["question", "option_a", "option_b", "option_c", "option_d", "correct_option"]):

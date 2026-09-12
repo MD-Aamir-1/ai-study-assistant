@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { getStudents, getStudentConcepts } from "../api/client";
+import { getStudentConcepts } from "../api/client";
+import { useAuth } from "../context/AuthContext";
 import {
   TrendingUp,
   TrendingDown,
@@ -8,35 +9,26 @@ import {
   AlertTriangle,
   CheckCircle2,
   BookOpen,
+  Brain,
 } from "lucide-react";
 import "./KnowledgeGaps.css";
 
 export default function KnowledgeGaps() {
-  const [students, setStudents] = useState([]);
-  const [selectedId, setSelectedId] = useState(null);
+  const { user } = useAuth();
   const [data, setData] = useState(null);
   const [filter, setFilter] = useState("all");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    getStudents()
-      .then((res) => {
-        setStudents(res.data);
-        if (res.data.length > 0) setSelectedId(res.data[0].id);
-      })
-      .catch(() => setError("Could not load students."));
-  }, []);
-
-  useEffect(() => {
-    if (!selectedId) return;
+    if (!user?.student_id) return;
     setLoading(true);
     setError("");
-    getStudentConcepts(selectedId)
+    getStudentConcepts(user.student_id)
       .then((res) => setData(res.data))
       .catch(() => setError("Failed to load concept data"))
       .finally(() => setLoading(false));
-  }, [selectedId]);
+  }, [user?.student_id]);
 
   const trendIcon = (t) => {
     if (t === "improving") return <TrendingUp size={12} />;
@@ -66,6 +58,7 @@ export default function KnowledgeGaps() {
     if (filter === "strong") return c.score >= 75;
     if (filter === "improving") return c.trend === "improving";
     if (filter === "declining") return c.trend === "declining";
+    if (filter === "at_risk") return c.at_risk === true;
     return true;
   });
 
@@ -76,6 +69,7 @@ export default function KnowledgeGaps() {
   const weak = allConcepts.filter((c) => c.score < 50).length;
   const strong = allConcepts.filter((c) => c.score >= 75).length;
   const improving = allConcepts.filter((c) => c.trend === "improving").length;
+  const atRisk = allConcepts.filter((c) => c.at_risk === true).length;
 
   return (
     <div className="gaps-page">
@@ -83,25 +77,15 @@ export default function KnowledgeGaps() {
         <div>
           <h1 className="gaps-title">Knowledge Gaps</h1>
           <p className="gaps-subtitle">
-            Concept-level analysis of what you know and what you don't.
+            Concept-level analysis with ML risk prediction.
           </p>
         </div>
 
         <div className="gaps-controls">
-          <select
-            value={selectedId || ""}
-            onChange={(e) => setSelectedId(Number(e.target.value))}
-          >
-            {students.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name} ({s.course})
-              </option>
-            ))}
-          </select>
-
           <select value={filter} onChange={(e) => setFilter(e.target.value)}>
             <option value="all">All Concepts</option>
-            <option value="weak">🔴 Weak (&lt; 50%)</option>
+            <option value="at_risk">🔴 At Risk (ML)</option>
+            <option value="weak">⚪ Weak (&lt; 50%)</option>
             <option value="strong">🟢 Strong (≥ 75%)</option>
             <option value="improving">📈 Improving</option>
             <option value="declining">📉 Declining</option>
@@ -167,24 +151,58 @@ export default function KnowledgeGaps() {
             </div>
           </div>
 
+          {/* ML SUMMARY STRIP */}
+          {atRisk > 0 && (
+            <div className="ml-summary-strip">
+              <div className="ml-summary-icon">
+                <Brain size={18} />
+              </div>
+              <div>
+                <div className="ml-summary-title">
+                  ML Risk Analysis
+                </div>
+                <div className="ml-summary-text">
+                  Your Random Forest model flagged{" "}
+                  <b>
+                    {atRisk} concept{atRisk === 1 ? "" : "s"}
+                  </b>{" "}
+                  as at-risk based on score, attempts, and topic difficulty.
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* LIST */}
           {sorted.length === 0 ? (
-            <p className="gaps-muted">
-              No concepts match this filter.
-            </p>
+            <p className="gaps-muted">No concepts match this filter.</p>
           ) : (
             <div className="gap-list">
               {sorted.map((c) => (
                 <div
                   key={`${c.topic_id}-${c.concept_id}`}
-                  className="gap-item"
+                  className={`gap-item ${c.at_risk ? "gap-item-risk" : ""}`}
                 >
                   <div className="gap-item-left">
                     <div className={`gap-score ${scoreClass(c.score)}`}>
                       {Math.round(c.score)}%
                     </div>
-                    <div>
-                      <div className="gap-name">{c.concept_name}</div>
+                    <div className="gap-info">
+                      <div className="gap-name-row">
+                        <span className="gap-name">{c.concept_name}</span>
+                        {c.at_risk !== undefined && (
+                          <span
+                            className={`ml-badge ${
+                              c.at_risk ? "ml-badge-risk" : "ml-badge-ok"
+                            }`}
+                            title={`ML confidence: ${c.risk_confidence} · ${Math.round(
+                              (c.risk_probability || 0) * 100
+                            )}% risk probability`}
+                          >
+                            <Brain size={10} />
+                            {c.at_risk ? "At Risk" : "On Track"}
+                          </span>
+                        )}
+                      </div>
                       <div className="gap-topic">
                         {c.subject_name} → {c.topic_name}
                       </div>

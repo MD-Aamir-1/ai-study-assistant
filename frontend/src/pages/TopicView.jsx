@@ -47,7 +47,12 @@ export default function TopicView() {
   };
 
   const handleRegenerate = async () => {
-    if (!window.confirm("Regenerate content? This may take 15–20 seconds.")) return;
+    if (
+      !window.confirm(
+        "Regenerate content? This may take 15–20 seconds."
+      )
+    )
+      return;
     setRegenerating(true);
     try {
       await regenerateContent(id);
@@ -125,7 +130,7 @@ export default function TopicView() {
             </button>
             <button
               className="btn-primary"
-              onClick={() => navigate("/quiz")}
+              onClick={() => navigate(`/quiz?topic=${id}`)}
             >
               <Play size={14} />
               Take Test
@@ -302,11 +307,14 @@ export default function TopicView() {
         <div>
           <h3>Ready to test your understanding?</h3>
           <p>
-            Take a conceptual test to identify exactly which concepts you've
-            mastered and which need revision.
+            Take a conceptual test to identify exactly which concepts
+            you've mastered and which need revision.
           </p>
         </div>
-        <button className="btn-primary" onClick={() => navigate("/quiz")}>
+        <button
+          className="btn-primary"
+          onClick={() => navigate(`/quiz?topic=${id}`)}
+        >
           <Play size={16} />
           Start Conceptual Test
         </button>

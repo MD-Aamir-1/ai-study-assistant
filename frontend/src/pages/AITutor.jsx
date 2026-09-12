@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { getStudents, askAITutor } from "../api/client";
+import { askAITutor } from "../api/client";
+import { useAuth } from "../context/AuthContext";
 import "./AITutor.css";
 
 export default function AITutor() {
-  const [students, setStudents] = useState([]);
-  const [selectedId, setSelectedId] = useState(null);
+  const { user } = useAuth();
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -12,26 +12,12 @@ export default function AITutor() {
   const bottomRef = useRef(null);
 
   useEffect(() => {
-    getStudents()
-      .then((res) => {
-        setStudents(res.data);
-        if (res.data.length > 0) setSelectedId(res.data[0].id);
-      })
-      .catch(() => setError("Could not load students."));
-  }, []);
-
-  useEffect(() => {
-    setMessages([]);
-    setError("");
-  }, [selectedId]);
-
-  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
   const handleSend = async () => {
     const q = input.trim();
-    if (!q || !selectedId) return;
+    if (!q || !user?.student_id) return;
 
     setError("");
     setInput("");
@@ -39,18 +25,19 @@ export default function AITutor() {
     setLoading(true);
 
     try {
-      const res = await askAITutor(selectedId, q);
+      const res = await askAITutor(user.student_id, q);
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
           content: res.data.answer,
-          context: res.data.context_topics,
+          context: res.data.context_concepts,
         },
       ]);
     } catch (err) {
       setError(
-        err.response?.data?.detail || "AI Tutor failed. Check the backend logs."
+        err.response?.data?.detail ||
+          "AI Tutor failed. Check the backend logs."
       );
     } finally {
       setLoading(false);
@@ -76,20 +63,9 @@ export default function AITutor() {
         <div>
           <h1 className="tutor-title">🤖 AI Tutor</h1>
           <p className="tutor-subtitle">
-            Ask anything about your studies. The tutor knows your weak topics.
+            Ask anything about your studies. The tutor knows your weak concepts.
           </p>
         </div>
-        <select
-          className="tutor-student-select"
-          value={selectedId || ""}
-          onChange={(e) => setSelectedId(Number(e.target.value))}
-        >
-          {students.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name} ({s.course})
-            </option>
-          ))}
-        </select>
       </div>
 
       {error && <div className="tutor-error">{error}</div>}
@@ -98,7 +74,7 @@ export default function AITutor() {
         {messages.length === 0 && (
           <div className="empty-chat">
             <p className="empty-title">
-              Ask anything about your studies. The tutor knows your weak topics.
+              Ask anything about your studies. The tutor knows your weak concepts.
             </p>
             <div className="prompts">
               {examplePrompts.map((p) => (
@@ -122,7 +98,7 @@ export default function AITutor() {
             <div className="bubble-content">{m.content}</div>
             {m.role === "assistant" && m.context?.length > 0 && (
               <div className="context-note">
-                Personalized for: {m.context.join(", ")}
+                🧠 Aware of your weak concepts: {m.context.join(", ")}
               </div>
             )}
           </div>
