@@ -7,10 +7,8 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Search from "./pages/Search";
 import TopicView from "./pages/TopicView";
-import StudyPlan from "./pages/StudyPlan";
 import Quiz from "./pages/Quiz";
 import AITutor from "./pages/AITutor";
-import Progress from "./pages/Progress";
 import KnowledgeGaps from "./pages/KnowledgeGaps";
 import Recommendations from "./pages/Recommendations";
 import Settings from "./pages/Settings";
@@ -34,9 +32,7 @@ function AppRoutes() {
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/search" element={<Search />} />
                 <Route path="/topic/:id" element={<TopicView />} />
-                <Route path="/study-plan" element={<StudyPlan />} />
                 <Route path="/quiz" element={<Quiz />} />
-                <Route path="/progress" element={<Progress />} />
                 <Route path="/gaps" element={<KnowledgeGaps />} />
                 <Route path="/recommendations" element={<Recommendations />} />
                 <Route path="/ai-tutor" element={<AITutor />} />

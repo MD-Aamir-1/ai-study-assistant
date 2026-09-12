@@ -10,8 +10,6 @@ import {
   Flame,
   TrendingUp,
   Sparkles,
-  CheckCircle2,
-  Circle,
 } from "lucide-react";
 import "./Dashboard.css";
 
@@ -23,17 +21,17 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Load students
   useEffect(() => {
     getStudents()
       .then((res) => {
         setStudents(res.data);
         if (res.data.length > 0) setSelectedId(res.data[0].id);
       })
-      .catch(() => setError("Could not load students. Is the backend running?"));
+      .catch(() =>
+        setError("Could not load students. Is the backend running?")
+      );
   }, []);
 
-  // Load dashboard analytics when student changes
   useEffect(() => {
     if (!selectedId) return;
     setLoading(true);
@@ -44,7 +42,6 @@ export default function Dashboard() {
       .finally(() => setLoading(false));
   }, [selectedId]);
 
-  // Load top recommendations when student changes
   useEffect(() => {
     if (!selectedId) return;
     getRecommendationsList(selectedId)
@@ -92,7 +89,7 @@ export default function Dashboard() {
         <>
           {/* ---------- STAT CARDS ---------- */}
           <div className="dash-stats">
-            {/* Study Progress */}
+            {/* Study Progress (from completed plans) */}
             <div className="stat-card">
               <div className="stat-top">
                 <span className="stat-label">Study Progress</span>
@@ -131,7 +128,8 @@ export default function Dashboard() {
                 </div>
                 <div className="stat-info">
                   <div className="stat-info-strong">
-                    {data.study_progress.completed} of {data.study_progress.total}
+                    {data.study_progress.completed} of{" "}
+                    {data.study_progress.total}
                   </div>
                   <div className="stat-info-muted">tasks completed</div>
                 </div>
@@ -179,7 +177,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* ---------- TOP RECOMMENDATIONS WIDGET ---------- */}
+          {/* ---------- RECOMMENDED FOR YOU ---------- */}
           {recs.length > 0 && (
             <div className="panel">
               <div className="panel-header">
@@ -210,86 +208,32 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* ---------- TWO COLUMN ---------- */}
-          <div className="dash-columns">
-            {/* Today's Study Plan */}
-            <div className="panel">
-              <div className="panel-header">
-                <h2 className="panel-title">Today's Study Plan</h2>
-                <a href="/study-plan" className="panel-link">
-                  View Full Plan →
-                </a>
-              </div>
-
-              {data.today_plan.length === 0 ? (
-                <p className="dash-muted">
-                  No plan yet for today. Go to Study Plan and generate one.
-                </p>
-              ) : (
-                <ul className="plan-list-dash">
-                  {data.today_plan.map((p) => (
-                    <li
-                      key={p.plan_id}
-                      className={`plan-row ${p.completed ? "done" : ""}`}
-                    >
-                      <div className="plan-row-left">
-                        {p.completed ? (
-                          <CheckCircle2 size={18} className="check-icon" />
-                        ) : (
-                          <Circle size={18} className="circle-icon" />
-                        )}
-                        <div>
-                          <div className="plan-row-title">
-                            {p.subject_name} → {p.topic_name}
-                          </div>
-                          <div className="plan-row-meta">
-                            {p.duration_minutes} min · {p.difficulty}
-                          </div>
-                        </div>
-                      </div>
-                      <span
-                        className={`pill ${
-                          p.completed ? "pill-done" : "pill-pending"
-                        }`}
-                      >
-                        {p.completed ? "Done" : "Pending"}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
+          {/* ---------- YOUR PERFORMANCE ---------- */}
+          <div className="panel">
+            <div className="panel-header">
+              <h2 className="panel-title">Your Performance</h2>
             </div>
 
-            {/* Performance */}
-            <div className="panel">
-              <div className="panel-header">
-                <h2 className="panel-title">Your Performance</h2>
-                <a href="/progress" className="panel-link">
-                  View Details →
-                </a>
-              </div>
-
-              {data.subject_performance.length === 0 ? (
-                <p className="dash-muted">No subjects yet.</p>
-              ) : (
-                <div className="perf-list">
-                  {data.subject_performance.map((s) => (
-                    <div key={s.subject_name} className="perf-item">
-                      <div className="perf-item-header">
-                        <span className="perf-name">{s.subject_name}</span>
-                        <span className="perf-score">{s.avg_score}%</span>
-                      </div>
-                      <div className="perf-bar">
-                        <div
-                          className="perf-fill"
-                          style={{ width: `${s.avg_score}%` }}
-                        />
-                      </div>
+            {data.subject_performance.length === 0 ? (
+              <p className="dash-muted">No subjects yet.</p>
+            ) : (
+              <div className="perf-list">
+                {data.subject_performance.map((s) => (
+                  <div key={s.subject_name} className="perf-item">
+                    <div className="perf-item-header">
+                      <span className="perf-name">{s.subject_name}</span>
+                      <span className="perf-score">{s.avg_score}%</span>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                    <div className="perf-bar">
+                      <div
+                        className="perf-fill"
+                        style={{ width: `${s.avg_score}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* ---------- AI RECOMMENDATION ---------- */}

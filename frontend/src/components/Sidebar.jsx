@@ -2,23 +2,19 @@ import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard,
   Search,
-  CalendarCheck,
   HelpCircle,
-  BarChart3,
+  Target,
+  Sparkles,
   Bot,
   Settings,
   GraduationCap,
-  Target,
-  Sparkles,
 } from "lucide-react";
 import "./Sidebar.css";
 
 const NAV_ITEMS = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/search", label: "Search", icon: Search },
-  { to: "/study-plan", label: "Study Plan", icon: CalendarCheck },
   { to: "/quiz", label: "Test", icon: HelpCircle },
-  { to: "/progress", label: "Progress", icon: BarChart3 },
   { to: "/gaps", label: "Knowledge Gaps", icon: Target },
   { to: "/recommendations", label: "Recommendations", icon: Sparkles },
   { to: "/ai-tutor", label: "AI Tutor", icon: Bot },
