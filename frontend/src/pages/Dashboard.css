@@ -341,3 +341,29 @@
   font-size: 13.5px;
   border: 1px solid var(--danger);
 }
+@media (max-width: 900px) {
+  .dash-title { font-size: 20px !important; }
+  .dash-stats {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+  .stat-value { font-size: 20px; }
+  .dash-rec-reason {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: unset;
+  }
+  .dash-rec-item {
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 480px) {
+  .dash-stats { grid-template-columns: 1fr; }
+  .dash-greeting-row { gap: 8px; }
+  .ai-reco-card {
+    flex-direction: column;
+    gap: 10px;
+  }
+  .perf-score { font-size: 12px; }
+}

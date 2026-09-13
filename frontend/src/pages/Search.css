@@ -239,3 +239,46 @@
   font-size: 13.5px;
   border: 1px solid var(--danger);
 }
+@media (max-width: 900px) {
+  .search-hero-title { font-size: 22px !important; }
+  .search-hero-subtitle { font-size: 14px; }
+  .search-box {
+    flex-direction: column;
+    padding: 12px;
+    gap: 10px;
+  }
+  .search-box-icon { display: none; }
+  .search-box input {
+    width: 100%;
+    padding: 10px 0;
+    font-size: 15px !important;
+  }
+  .search-box-btn {
+    width: 100%;
+    padding: 14px;
+  }
+  .search-info-cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .search-page { gap: 20px; }
+  .search-hero-icon {
+    width: 48px;
+    height: 48px;
+  }
+  .suggestions-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .suggestion-chip {
+    justify-content: center;
+    font-size: 12px;
+    padding: 8px 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}

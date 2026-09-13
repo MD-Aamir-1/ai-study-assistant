@@ -1,11 +1,19 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Bell, Search, Sun, Moon, LogOut, User } from "lucide-react";
+import {
+  Bell,
+  Search,
+  Sun,
+  Moon,
+  LogOut,
+  User,
+  Menu,
+} from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 import { useAuth } from "../context/AuthContext";
 import "./Topbar.css";
 
-export default function Topbar() {
+export default function Topbar({ onMenuClick }) {
   const { theme, toggle } = useTheme();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -31,6 +39,14 @@ export default function Topbar() {
 
   return (
     <header className="topbar">
+      <button
+        className="hamburger"
+        onClick={onMenuClick}
+        aria-label="Open menu"
+      >
+        <Menu size={20} />
+      </button>
+
       <div className="search-wrap">
         <Search size={16} />
         <input placeholder="Search anything..." />

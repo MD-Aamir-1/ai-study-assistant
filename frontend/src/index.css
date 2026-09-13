@@ -92,3 +92,39 @@ textarea {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
 }
+/* ==================================================
+   GLOBAL MOBILE / TABLET ADJUSTMENTS
+   ================================================== */
+@media (max-width: 900px) {
+  :root {
+    --radius: 10px;
+    --radius-sm: 8px;
+  }
+
+  body {
+    font-size: 14px;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  h1 { font-size: 22px !important; }
+  h2 { font-size: 18px !important; }
+  h3 { font-size: 16px !important; }
+
+  /* Prevent iOS zoom on input focus */
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Smooth momentum scrolling on mobile */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Prevent content overflow */
+img, svg, video {
+  max-width: 100%;
+  height: auto;
+}

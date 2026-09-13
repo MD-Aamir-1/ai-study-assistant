@@ -823,3 +823,34 @@
 .quiz-detail-concepts {
   margin-top: 8px;
 }
+@media (max-width: 900px) {
+  .quiz-title { font-size: 20px !important; }
+  .quiz-body { grid-template-columns: 1fr; }
+  .quiz-main { padding: 16px; }
+  .quiz-info {
+    order: -1;
+    width: 100%;
+  }
+  .quiz-q-text { font-size: 15px; }
+  .quiz-option {
+    padding: 12px 14px;
+    font-size: 13.5px;
+  }
+  .quiz-nav {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .quiz-nav-right { flex: 1; justify-content: flex-end; }
+  .quiz-controls {
+    width: 100%;
+    flex-direction: column;
+  }
+  .quiz-controls > select { width: 100%; max-width: none; }
+  .quiz-controls > button { width: 100%; justify-content: center; }
+  .result-header { flex-direction: column; align-items: flex-start; }
+  .result-score-big { width: 70px; height: 70px; font-size: 20px; }
+}
+
+@media (max-width: 480px) {
+  .btn-skip, .btn-primary { padding: 10px 14px; font-size: 13px; }
+}

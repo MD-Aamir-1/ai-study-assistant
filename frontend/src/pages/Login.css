@@ -290,3 +290,23 @@
     order: 1;
   }
 }
+@media (max-width: 900px) {
+  .login-page { grid-template-columns: 1fr; }
+  .login-hero {
+    padding: 24px 20px 12px;
+    order: 2;
+    text-align: center;
+  }
+  .hero-brand { justify-content: center; }
+  .hero-title { font-size: 24px !important; }
+  .hero-features { align-items: center; }
+  .hero-illustration { display: none; }
+  .hero-footer { text-align: center; }
+  .login-form-side { padding: 24px 16px; order: 1; }
+  .login-card { padding: 28px 22px; }
+}
+
+@media (max-width: 480px) {
+  .login-card { padding: 24px 18px; }
+  .login-socials { grid-template-columns: 1fr; }
+}

@@ -512,3 +512,32 @@
   border: 1px solid var(--danger);
   text-align: center;
 }
+@media (max-width: 900px) {
+  .topic-title { font-size: 22px !important; }
+  .topic-title-row { gap: 12px; }
+  .topic-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+  .topic-actions > * { flex: 1; justify-content: center; }
+  .section-body { padding-left: 0; }
+  .two-col { grid-template-columns: 1fr; gap: 16px; }
+  .topic-section { padding: 16px; }
+  .topic-cta {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .topic-cta > button { width: 100%; justify-content: center; }
+  .types-grid { grid-template-columns: 1fr; }
+  .topic-code { font-size: 12px !important; }
+}
+
+@media (max-width: 480px) {
+  .topic-view { gap: 16px; }
+  .topic-meta { gap: 8px; }
+  .concept-chips { gap: 6px; }
+  .concept-chip {
+    font-size: 12px;
+    padding: 5px 10px;
+  }
+}

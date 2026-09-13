@@ -338,3 +338,17 @@
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+@media (max-width: 900px) {
+  .recs-title { font-size: 20px !important; }
+  .recs-list { grid-template-columns: 1fr; }
+  .recs-summary { grid-template-columns: 1fr 1fr; }
+}
+
+@media (max-width: 480px) {
+  .recs-summary { grid-template-columns: 1fr; }
+  .rec-card { padding: 16px; }
+  .rec-scores { grid-template-columns: 1fr 1fr 1fr; }
+  .rec-actions { flex-direction: column; }
+  .rec-actions .btn-secondary,
+  .rec-actions .btn-primary { width: 100%; justify-content: center; }
+}

@@ -342,3 +342,18 @@
   border-color: rgba(239, 68, 68, 0.4);
   background: rgba(239, 68, 68, 0.03);
 }
+@media (max-width: 900px) {
+  .settings-title { font-size: 20px !important; }
+  .form-row { grid-template-columns: 1fr; }
+  .theme-options { flex-direction: column; }
+  .theme-option { justify-content: center; }
+  .data-actions { flex-direction: column; }
+  .data-actions > button { width: 100%; justify-content: center; }
+}
+
+@media (max-width: 480px) {
+  .settings-section { padding: 16px; }
+  .section-head { gap: 10px; }
+  .section-icon { width: 34px; height: 34px; }
+  .btn-danger { width: 100%; }
+}

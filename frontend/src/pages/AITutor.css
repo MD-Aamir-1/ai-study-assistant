@@ -211,3 +211,26 @@
   font-size: 13.5px;
   border: 1px solid var(--danger);
 }
+@media (max-width: 900px) {
+  .tutor-page {
+    height: auto;
+    min-height: calc(100vh - 100px);
+  }
+  .tutor-title { font-size: 20px !important; }
+  .chat-window {
+    max-height: none;
+    min-height: 60vh;
+    padding: 14px;
+  }
+  .bubble { max-width: 90%; font-size: 13.5px; }
+  .input-bar {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .input-bar button { width: 100%; padding: 14px; }
+}
+
+@media (max-width: 480px) {
+  .bubble { max-width: 95%; padding: 10px 14px; }
+  .prompt-chip { font-size: 12px; padding: 7px 12px; }
+}

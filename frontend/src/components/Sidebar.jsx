@@ -8,6 +8,7 @@ import {
   Bot,
   Settings,
   GraduationCap,
+  X,
 } from "lucide-react";
 import "./Sidebar.css";
 
@@ -21,12 +22,19 @@ const NAV_ITEMS = [
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({ mobileOpen = false, onClose = () => {} }) {
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar ${mobileOpen ? "open" : ""}`}>
       <div className="sidebar-brand">
         <GraduationCap size={26} />
         <span>AI Study Assistant</span>
+        <button
+          className="sidebar-close"
+          onClick={onClose}
+          aria-label="Close menu"
+        >
+          <X size={20} />
+        </button>
       </div>
 
       <nav className="sidebar-nav">
@@ -40,6 +48,7 @@ export default function Sidebar() {
               className={({ isActive }) =>
                 `nav-item ${isActive ? "active" : ""}`
               }
+              onClick={onClose}
             >
               <Icon size={18} />
               <span>{item.label}</span>
