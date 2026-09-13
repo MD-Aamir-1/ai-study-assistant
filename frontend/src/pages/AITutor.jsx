@@ -120,16 +120,16 @@ export default function AITutor() {
 
       <div className="input-bar">
         <textarea
-          placeholder="Ask a question... (Enter to send, Shift+Enter for new line)"
+          placeholder="Ask a question..."
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          rows={2}
+          rows={1}
         />
-        <button onClick={handleSend} disabled={loading || !input.trim()}>
-          Send
-        </button>
-      </div>
+      <button onClick={handleSend} disabled={loading || !input.trim()}>
+      Send
+      </button>
+    </div>
     </div>
   );
 }

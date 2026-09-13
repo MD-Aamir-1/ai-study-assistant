@@ -541,3 +541,25 @@
     padding: 5px 10px;
   }
 }
+/* ---------- Clickable Concept Chips ---------- */
+.concept-chip-clickable {
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+  border: 1px solid var(--border);
+}
+
+.concept-chip-clickable:hover {
+  border-color: var(--primary);
+  background: var(--primary-light);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.15);
+}
+
+.concept-chip-clickable:active {
+  transform: translateY(0);
+}
+
+.concept-chip-clickable:hover .concept-chip-name {
+  color: var(--primary);
+}

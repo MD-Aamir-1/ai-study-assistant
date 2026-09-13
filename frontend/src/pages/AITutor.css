@@ -47,6 +47,7 @@
   flex-direction: column;
   gap: 14px;
   box-shadow: var(--shadow-sm);
+  min-height: 300px;
 }
 
 .empty-chat {
@@ -144,6 +145,7 @@
 .typing span:nth-child(2) {
   animation-delay: 0.2s;
 }
+
 .typing span:nth-child(3) {
   animation-delay: 0.4s;
 }
@@ -159,6 +161,7 @@
   }
 }
 
+/* ---------- INPUT BAR (desktop) ---------- */
 .input-bar {
   display: flex;
   gap: 10px;
@@ -175,6 +178,11 @@
   color: var(--text);
   resize: none;
   font-family: inherit;
+  min-height: 44px;
+  max-height: 140px;
+  overflow-y: auto;
+  line-height: 1.4;
+  field-sizing: content; /* auto-grow where supported */
 }
 
 .input-bar textarea:focus {
@@ -192,6 +200,7 @@
   cursor: pointer;
   font-size: 14px;
   transition: background 0.15s;
+  min-height: 44px;
 }
 
 .input-bar button:hover:not(:disabled) {
@@ -211,26 +220,69 @@
   font-size: 13.5px;
   border: 1px solid var(--danger);
 }
+
+/* ==================================================
+   TABLET + MOBILE
+   ================================================== */
 @media (max-width: 900px) {
   .tutor-page {
-    height: auto;
-    min-height: calc(100vh - 100px);
+    height: calc(100vh - 80px);
+    min-height: 400px;
   }
-  .tutor-title { font-size: 20px !important; }
+
+  .tutor-title {
+    font-size: 20px !important;
+  }
+
   .chat-window {
     max-height: none;
-    min-height: 60vh;
+    min-height: 40vh;
     padding: 14px;
   }
-  .bubble { max-width: 90%; font-size: 13.5px; }
+
+  .bubble {
+    max-width: 90%;
+    font-size: 13.5px;
+  }
+
   .input-bar {
     flex-direction: column;
     gap: 8px;
+    align-items: stretch;
   }
-  .input-bar button { width: 100%; padding: 14px; }
+
+  .input-bar textarea {
+    min-height: 48px;
+    max-height: 120px;
+    font-size: 15px;
+    padding: 12px 14px;
+  }
+
+  .input-bar button {
+    width: 100%;
+    padding: 14px;
+    font-size: 14px;
+  }
 }
 
+/* ---------- SMALL MOBILE ---------- */
 @media (max-width: 480px) {
-  .bubble { max-width: 95%; padding: 10px 14px; }
-  .prompt-chip { font-size: 12px; padding: 7px 12px; }
+  .bubble {
+    max-width: 95%;
+    padding: 10px 14px;
+  }
+
+  .prompt-chip {
+    font-size: 12px;
+    padding: 7px 12px;
+  }
+}
+
+/* ---------- MOBILE BROWSER CHROME FIX ---------- */
+@supports (height: 100dvh) {
+  @media (max-width: 900px) {
+    .tutor-page {
+      height: calc(100dvh - 80px);
+    }
+  }
 }

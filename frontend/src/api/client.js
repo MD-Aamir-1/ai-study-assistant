@@ -61,5 +61,8 @@ export const completeRecommendation = (recId, studentId) =>
 // ---------- AI TUTOR ----------
 export const askAITutor = (studentId, question) =>
   API.post("/ai/ask", { student_id: studentId, question });
+// ---------- CONCEPT DEEP-DIVE ----------
+export const getConceptContent = (conceptId, force = false) =>
+  API.post(`/concepts/${conceptId}/content?force=${force}`);
 
 export default API;

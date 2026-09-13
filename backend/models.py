@@ -49,7 +49,7 @@ class Topic(Base):
     quiz_questions = relationship("QuizQuestion", back_populates="topic")
     quiz_results = relationship("QuizResult", back_populates="topic")
 
-    # NEW relationships
+    # Concept-level relationships
     concepts = relationship("Concept", back_populates="topic", cascade="all, delete-orphan")
     learning_content = relationship(
         "LearningContent", back_populates="topic", uselist=False, cascade="all, delete-orphan"
@@ -111,7 +111,7 @@ class QuizResult(Base):
 
 
 # ==================================================
-# NEW MODELS — PHASE A (Concept-level learning)
+# CONCEPT-LEVEL MODELS
 # ==================================================
 
 class Concept(Base):
@@ -135,6 +135,10 @@ class Concept(Base):
     recommendations = relationship(
         "Recommendation", back_populates="concept", cascade="all, delete-orphan"
     )
+    content = relationship(
+        "ConceptContent", back_populates="concept", uselist=False,
+        cascade="all, delete-orphan"
+    )
 
 
 class LearningContent(Base):
@@ -155,6 +159,23 @@ class LearningContent(Base):
     topic = relationship("Topic", back_populates="learning_content")
 
 
+class ConceptContent(Base):
+    """Cached deep-dive content for a single concept."""
+    __tablename__ = "concept_contents"
+    id = Column(Integer, primary_key=True, index=True)
+    concept_id = Column(
+        Integer, ForeignKey("concepts.id"), nullable=False, unique=True, index=True
+    )
+    content_json = Column(Text, nullable=False)
+    model_version = Column(String, default="")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    concept = relationship("Concept", back_populates="content")
+
+
 class Question(Base):
     """Concept-aware question (new system)."""
     __tablename__ = "questions"
@@ -168,7 +189,7 @@ class Question(Base):
     correct_option = Column(String(1), nullable=False)  # "A"|"B"|"C"|"D"
     explanation = Column(Text, default="")
     difficulty = Column(String, default="medium")
-    question_type = Column(String, default="conceptual")  # conceptual/application/scenario
+    question_type = Column(String, default="conceptual")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     topic = relationship("Topic", back_populates="questions")
@@ -186,7 +207,7 @@ class QuestionConcept(Base):
     id = Column(Integer, primary_key=True, index=True)
     question_id = Column(Integer, ForeignKey("questions.id"), nullable=False, index=True)
     concept_id = Column(Integer, ForeignKey("concepts.id"), nullable=False, index=True)
-    weight = Column(Float, default=1.0)  # how central concept is to the question
+    weight = Column(Float, default=1.0)
 
     question = relationship("Question", back_populates="concept_links")
     concept = relationship("Concept", back_populates="question_links")
@@ -198,10 +219,10 @@ class QuestionAttempt(Base):
     id = Column(Integer, primary_key=True, index=True)
     student_id = Column(Integer, ForeignKey("students.id"), nullable=False, index=True)
     question_id = Column(Integer, ForeignKey("questions.id"), nullable=False, index=True)
-    selected_option = Column(String(1), nullable=True)  # null if skipped
+    selected_option = Column(String(1), nullable=True)
     is_correct = Column(Boolean, default=False)
     time_spent_secs = Column(Integer, default=0)
-    session_id = Column(String, index=True)  # groups attempts from one test session
+    session_id = Column(String, index=True)
     attempted_at = Column(DateTime(timezone=True), server_default=func.now())
 
     student = relationship("Student", back_populates="question_attempts")
@@ -216,9 +237,9 @@ class ConceptStat(Base):
     concept_id = Column(Integer, ForeignKey("concepts.id"), nullable=False, index=True)
     attempts = Column(Integer, default=0)
     correct = Column(Integer, default=0)
-    score = Column(Float, default=0.0)          # 0-100 rolling average
-    confidence = Column(Float, default=0.0)     # 0-1, based on attempt count
-    trend = Column(String, default="stable")    # improving/declining/stable
+    score = Column(Float, default=0.0)
+    confidence = Column(Float, default=0.0)
+    trend = Column(String, default="stable")
     last_updated = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
@@ -233,11 +254,11 @@ class Recommendation(Base):
     id = Column(Integer, primary_key=True, index=True)
     student_id = Column(Integer, ForeignKey("students.id"), nullable=False, index=True)
     concept_id = Column(Integer, ForeignKey("concepts.id"), nullable=False, index=True)
-    priority = Column(Float, default=0.0)      # 0-100, higher = more urgent
+    priority = Column(Float, default=0.0)
     reason = Column(Text, default="")
     suggested_minutes = Column(Integer, default=30)
-    activity_type = Column(String, default="read")  # read/practice/quiz/revise/retest
-    status = Column(String, default="pending")       # pending/done/skipped
+    activity_type = Column(String, default="read")
+    status = Column(String, default="pending")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     student = relationship("Student", back_populates="recommendations")

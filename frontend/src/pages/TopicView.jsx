@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { getTopicFull, regenerateContent } from "../api/client";
+import ConceptModal from "../components/ConceptModal";
 import {
   Sparkles,
   RefreshCw,
@@ -27,6 +28,7 @@ export default function TopicView() {
   const [loading, setLoading] = useState(true);
   const [regenerating, setRegenerating] = useState(false);
   const [error, setError] = useState("");
+  const [activeConcept, setActiveConcept] = useState(null);
 
   useEffect(() => {
     loadTopic();
@@ -139,15 +141,22 @@ export default function TopicView() {
         </div>
       </div>
 
-      {/* ---------- CONCEPT CHIPS ---------- */}
+      {/* ---------- CONCEPT CHIPS (CLICKABLE) ---------- */}
       <section className="topic-concepts-strip">
         <div className="strip-title">
           <Layers size={16} />
           Concepts in this topic
+          <span className="strip-hint">— click any to dive deeper</span>
         </div>
         <div className="concept-chips">
           {concepts.map((c) => (
-            <div key={c.id} className="concept-chip">
+            <button
+              key={c.id}
+              type="button"
+              className="concept-chip concept-chip-clickable"
+              onClick={() => setActiveConcept(c)}
+              title={`Click to learn more about ${c.name}`}
+            >
               <span className="concept-chip-name">{c.name}</span>
               <span
                 className={`concept-chip-imp imp-${c.importance}`}
@@ -155,7 +164,7 @@ export default function TopicView() {
               >
                 {c.importance}
               </span>
-            </div>
+            </button>
           ))}
         </div>
       </section>
@@ -319,6 +328,14 @@ export default function TopicView() {
           Start Conceptual Test
         </button>
       </div>
+
+      {/* ---------- CONCEPT MODAL ---------- */}
+      {activeConcept && (
+        <ConceptModal
+          concept={activeConcept}
+          onClose={() => setActiveConcept(null)}
+        />
+      )}
     </div>
   );
 }

@@ -929,3 +929,36 @@ def complete_rec(rec_id: int, student_id: int, db: Session = Depends(get_db)):
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     return {"message": "Marked as complete", "id": rec.id, "status": rec.status}
+# ==================================================
+# CONCEPT DEEP-DIVE CONTENT
+# ==================================================
+from services.concept_content_service import (
+    get_or_create_concept_content,
+    invalidate_concept_content,
+)
+
+
+@app.post("/concepts/{concept_id}/content")
+def get_concept_content_endpoint(
+    concept_id: int, force: bool = False, db: Session = Depends(get_db)
+):
+    """Generate (or return cached) deep-dive content for a single concept."""
+    concept = db.query(models.Concept).filter(models.Concept.id == concept_id).first()
+    if not concept:
+        raise HTTPException(status_code=404, detail="Concept not found")
+
+    try:
+        if force:
+            invalidate_concept_content(concept_id, db)
+        content = get_or_create_concept_content(concept_id, db)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Concept generation failed: {e}")
+
+    topic = db.query(models.Topic).filter(models.Topic.id == concept.topic_id).first()
+
+    return {
+        "concept_id": concept_id,
+        "concept_name": concept.name,
+        "topic_name": topic.name if topic else "—",
+        "content": content,
+    }
