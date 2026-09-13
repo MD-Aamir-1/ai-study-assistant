@@ -212,17 +212,12 @@
   border-radius: var(--radius-sm);
 }
 
-.cm-example {
-  font-family: 'Consolas', 'Monaco', monospace;
-  font-size: 13px;
+.cm-example-wrap {
   background: var(--surface-alt);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 14px 16px;
-  white-space: pre-wrap;
-  line-height: 1.6;
+  padding: 16px 18px;
 }
-
 /* STEPS */
 .cm-steps {
   list-style: none;

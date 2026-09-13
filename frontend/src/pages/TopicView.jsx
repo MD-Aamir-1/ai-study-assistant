@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { getTopicFull, regenerateContent } from "../api/client";
+import Markdown from "../components/Markdown";
+import MermaidDiagram from "../components/MermaidDiagram";
 import ConceptModal from "../components/ConceptModal";
+import "../components/Markdown.css";
 import {
   Sparkles,
   RefreshCw,
@@ -49,11 +52,7 @@ export default function TopicView() {
   };
 
   const handleRegenerate = async () => {
-    if (
-      !window.confirm(
-        "Regenerate content? This may take 15–20 seconds."
-      )
-    )
+    if (!window.confirm("Regenerate content? This may take 20–30 seconds."))
       return;
     setRegenerating(true);
     try {
@@ -115,9 +114,7 @@ export default function TopicView() {
               <span className={`diff-pill diff-${topic.difficulty}`}>
                 {topic.difficulty}
               </span>
-              <span className="topic-meta-item">
-                {concepts.length} concepts
-              </span>
+              <span className="topic-meta-item">{concepts.length} concepts</span>
             </div>
           </div>
 
@@ -141,12 +138,11 @@ export default function TopicView() {
         </div>
       </div>
 
-      {/* ---------- CONCEPT CHIPS (CLICKABLE) ---------- */}
+      {/* ---------- CONCEPT CHIPS ---------- */}
       <section className="topic-concepts-strip">
         <div className="strip-title">
           <Layers size={16} />
           Concepts in this topic
-          <span className="strip-hint">— click any to dive deeper</span>
         </div>
         <div className="concept-chips">
           {concepts.map((c) => (
@@ -206,6 +202,16 @@ export default function TopicView() {
         <p className="topic-text topic-intuition">{content.intuition}</p>
       </Section>
 
+      {/* ---------- DIAGRAM ---------- */}
+      {content.diagram_mermaid && content.diagram_mermaid.trim() && (
+        <Section icon={Layers} title="Diagram" accent="purple">
+            <MermaidDiagram code={content.diagram_mermaid} />
+            {content.diagram_caption && (
+              <p className="diagram-caption">{content.diagram_caption}</p>
+            )}
+        </Section>
+      )}
+
       {/* ---------- EXAMPLES ---------- */}
       <Section icon={BookOpen} title="Real-World Examples" accent="green">
         <ul className="bullet-list">
@@ -216,7 +222,9 @@ export default function TopicView() {
       </Section>
 
       <Section icon={Wrench} title="Technical Example" accent="blue">
-        <p className="topic-text topic-code">{content.technical_example}</p>
+        <div className="topic-code-wrap">
+          <Markdown>{content.technical_example}</Markdown>
+        </div>
       </Section>
 
       {/* ---------- TYPES ---------- */}
@@ -316,8 +324,8 @@ export default function TopicView() {
         <div>
           <h3>Ready to test your understanding?</h3>
           <p>
-            Take a conceptual test to identify exactly which concepts
-            you've mastered and which need revision.
+            Take a conceptual test to identify exactly which concepts you've
+            mastered and which need revision.
           </p>
         </div>
         <button

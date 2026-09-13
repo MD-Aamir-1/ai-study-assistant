@@ -265,15 +265,29 @@
   color: var(--text);
 }
 
-.topic-code {
+.topic-code-wrap {
   background: var(--surface-alt);
-  border-radius: var(--radius-sm);
-  padding: 14px 16px;
-  font-family: 'Consolas', 'Monaco', monospace;
-  font-size: 13px;
-  line-height: 1.6;
   border: 1px solid var(--border);
-  white-space: pre-wrap;
+  border-radius: var(--radius-sm);
+  padding: 16px 18px;
+}
+
+.topic-code-wrap .md-content {
+  font-size: 13.5px;
+}
+
+.topic-code-wrap .md-content h2 {
+  font-size: 16px;
+  margin-top: 4px;
+}
+
+.topic-code-wrap .md-content h3 {
+  font-size: 14.5px;
+  margin-top: 14px;
+}
+
+.topic-code-wrap .md-content p {
+  margin: 0 0 10px;
 }
 
 .topic-summary {
@@ -562,4 +576,11 @@
 
 .concept-chip-clickable:hover .concept-chip-name {
   color: var(--primary);
+}
+.diagram-caption {
+  margin: 10px 0 0;
+  font-size: 13px;
+  font-style: italic;
+  color: var(--text-muted);
+  text-align: center;
 }

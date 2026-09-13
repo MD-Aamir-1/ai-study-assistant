@@ -28,6 +28,31 @@ Rules:
 - Assume the student has read the general topic overview already
 - Return ONLY valid JSON matching this schema
 
+IMPORTANT: For "concrete_example", use RICH MARKDOWN:
+
+## <short title>
+
+<1-sentence intro>
+
+### Step 1: <name>
+<details, bullets if helpful>
+
+### Step 2: <name>
+<details>
+
+### Step 3: <name>
+<details>
+
+Use markdown syntax:
+- ## / ### for headings
+- **bold** for emphasis
+- `code` for identifiers and simple formulas that fit in one line
+- - bullets for lists
+- $$...$$ for multi-term math formulas — ALWAYS on their own line
+- Do NOT use $...$ inline math
+
+Do NOT include a summary table at the end. Stop after the last step.
+
 Schema:
 {{
   "summary": "1-2 sentence essence of this concept",
@@ -35,7 +60,7 @@ Schema:
   "deep_explanation": "thorough 6-10 sentence explanation covering the mechanics",
   "how_it_works": ["step 1", "step 2", "step 3", "step 4"],
   "intuition": "an analogy or mental model that makes it click",
-  "concrete_example": "specific example with actual values/numbers/names where possible",
+  "concrete_example": "a well-structured markdown example (see rules above)",
   "common_pitfalls": ["pitfall 1", "pitfall 2", "pitfall 3"],
   "connections": ["related concept 1", "related concept 2", "related concept 3"],
   "quick_check": "one short question the student can answer to confirm understanding"
@@ -43,6 +68,7 @@ Schema:
 
 Requirements:
 - how_it_works: 3-5 steps
+- concrete_example: MUST be markdown-formatted (see above). No summary table.
 - common_pitfalls: 3-4 pitfalls that specifically trap learners
 - connections: 3-4 related concepts students should know
 """

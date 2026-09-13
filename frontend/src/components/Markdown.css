@@ -1,0 +1,151 @@
+.md-content {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text);
+}
+
+.md-content h1,
+.md-content h2,
+.md-content h3,
+.md-content h4 {
+  margin: 18px 0 10px;
+  color: var(--text);
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.md-content h1 { font-size: 20px; }
+.md-content h2 { font-size: 17px; }
+.md-content h3 { font-size: 15px; }
+.md-content h4 { font-size: 14px; }
+
+.md-content p {
+  margin: 0 0 12px;
+}
+
+.md-content ul,
+.md-content ol {
+  margin: 0 0 12px;
+  padding-left: 24px;
+}
+
+.md-content li {
+  margin-bottom: 6px;
+}
+
+.md-content strong {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.md-content em {
+  font-style: italic;
+}
+
+.md-content code {
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 12.5px;
+  color: var(--primary);
+}
+
+.md-content pre {
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  overflow-x: auto;
+  margin: 0 0 12px;
+}
+
+.md-content pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.md-content blockquote {
+  border-left: 4px solid var(--primary);
+  padding: 6px 14px;
+  margin: 12px 0;
+  background: var(--surface-alt);
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.md-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+  font-size: 13px;
+}
+
+.md-content th,
+.md-content td {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+
+.md-content th {
+  background: var(--surface-alt);
+  font-weight: 700;
+}
+
+.md-content hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 16px 0;
+}
+
+.md-content a {
+  color: var(--primary);
+  text-decoration: underline;
+}
+
+/* KaTeX-like formula fallback (for $...$ and $$...$$) */
+.md-content .math-block {
+  display: block;
+  text-align: center;
+  padding: 12px;
+  margin: 12px 0;
+  background: var(--surface-alt);
+  border-radius: var(--radius-sm);
+  font-family: 'Georgia', serif;
+  font-size: 15px;
+  overflow-x: auto;
+}
+/* ---------- KaTeX math ---------- */
+.md-content .katex {
+  font-size: 1.05em;
+  color: var(--text);
+}
+
+.md-content .katex-display {
+  margin: 14px 0;
+  padding: 10px;
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.md-content .katex-display > .katex {
+  font-size: 1.15em;
+}
+
+/* Prevent long formulas from breaking layout */
+.md-content .katex-display::-webkit-scrollbar {
+  height: 6px;
+}
+
+.md-content .katex-display::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}

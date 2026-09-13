@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import { getConceptContent } from "../api/client";
 import "./ConceptModal.css";
+import Markdown from "./Markdown";
+import "./Markdown.css";
 
 export default function ConceptModal({ concept, onClose }) {
   const [content, setContent] = useState(null);
@@ -169,11 +171,13 @@ export default function ConceptModal({ concept, onClose }) {
               {/* Concrete example */}
               {content.concrete_example && (
                 <section className="cm-section">
-                  <div className="cm-section-head">
+                <div className="cm-section-head">
                     <Wrench size={15} />
                     <h3>Concrete Example</h3>
-                  </div>
-                  <p className="cm-text cm-example">{content.concrete_example}</p>
+                </div>
+                <div className="cm-example-wrap">
+                    <Markdown>{content.concrete_example}</Markdown>
+                </div>
                 </section>
               )}
 
