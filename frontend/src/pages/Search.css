@@ -282,3 +282,28 @@
     text-overflow: ellipsis;
   }
 }
+.search-error {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--danger-light);
+  color: var(--danger);
+  padding: 14px 18px;
+  border-radius: var(--radius-sm);
+  font-size: 13.5px;
+  border: 1px solid var(--danger);
+}
+
+.search-error svg {
+  flex-shrink: 0;
+}
+
+.search-debug {
+  background: var(--surface-alt);
+  color: var(--text-muted);
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  border: 1px dashed var(--border);
+}

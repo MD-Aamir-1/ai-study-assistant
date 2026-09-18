@@ -21,6 +21,7 @@
   --radius: 12px;
   --radius-sm: 8px;
   --sidebar-width: 240px;
+  --sidebar-width-collapsed: 76px;
 }
 
 [data-theme="dark"] {

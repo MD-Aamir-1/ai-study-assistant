@@ -1,83 +1,111 @@
 """
 Shared LLM helper: calls Groq and returns parsed JSON or raw text.
-Reuses the Groq client from ai_tutor.py (no duplicate client).
 """
 
 import json
+import re
 from ai_tutor import get_client
 
-
+# Current Groq production text models (as of Sept 2026):
+# - openai/gpt-oss-20b  → fast, good quality
+# - openai/gpt-oss-120b → slower, highest quality
+# Note: llama-3.1-8b-instant was retired on 16 Aug 2026.
 DEFAULT_MODEL = "openai/gpt-oss-120b"
+FAST_MODEL = "openai/gpt-oss-20b"
 
 
 def _extract_json(text: str):
-    """Strip markdown fences and find the first JSON value in the text."""
+    """Robust JSON extractor."""
+    if not text:
+        raise ValueError("Empty LLM response")
+
     text = text.strip()
 
-    # Remove markdown code fences if present
+    # Remove markdown code fences
     if text.startswith("```"):
-        # Remove opening fence (```json or ```)
-        first_newline = text.find("\n")
-        if first_newline != -1:
-            text = text[first_newline + 1 :]
-        # Remove closing fence
-        if text.rstrip().endswith("```"):
-            text = text.rstrip()[:-3]
+        text = re.sub(r"^```(?:json|JSON)?\s*\n?", "", text)
+        text = re.sub(r"\n?```\s*$", "", text)
+        text = text.strip()
 
-    text = text.strip()
+    # Find first { or [
+    start_brace = text.find("{")
+    start_bracket = text.find("[")
+    candidates = [i for i in (start_brace, start_bracket) if i != -1]
+    if not candidates:
+        raise ValueError(f"No JSON found in response:\n{text[:500]}")
+    start = min(candidates)
 
-    # Find the first { or [ and the matching last } or ]
-    first_brace = min(
-        (text.find("{") if "{" in text else 10**9),
-        (text.find("[") if "[" in text else 10**9),
-    )
-    if first_brace > 0 and first_brace < 10**9:
-        text = text[first_brace:]
+    # Find last } or ]
+    end_brace = text.rfind("}")
+    end_bracket = text.rfind("]")
+    end = max(end_brace, end_bracket)
+    if end <= start:
+        raise ValueError(f"Unmatched JSON braces:\n{text[:500]}")
 
-    last_brace = max(text.rfind("}"), text.rfind("]"))
-    if last_brace != -1:
-        text = text[: last_brace + 1]
+    text = text[start : end + 1]
 
-    return json.loads(text)
+    # Attempt 1: as-is
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Attempt 2: fix common issues
+    fixed = re.sub(r",(\s*[}\]])", r"\1", text)
+    if fixed.count('"') < 4 and "'" in fixed:
+        fixed = fixed.replace("'", '"')
+
+    try:
+        return json.loads(fixed)
+    except json.JSONDecodeError as e:
+        raise ValueError(
+            f"Could not parse LLM JSON: {e}\n---RAW---\n{text[:800]}"
+        )
 
 
-def call_llm_json(prompt: str, system: str = "", temperature: float = 0.7, max_tokens: int = 4000):
+def call_llm_json(
+    prompt: str,
+    system: str = "",
+    temperature: float = 0.7,
+    max_tokens: int = 4000,
+    model: str | None = None,
+):
     """
-    Call Groq and return parsed JSON (dict or list).
-    Raises RuntimeError if the model doesn't return valid JSON.
+    Call Groq and return parsed JSON.
+    NOTE: gpt-oss models don't support response_format — we enforce JSON via prompt.
     """
     client = get_client()
 
-    messages = []
-    if system:
-        messages.append({"role": "system", "content": system})
-    else:
-        messages.append({
-            "role": "system",
-            "content": (
-                "You return ONLY valid JSON. No markdown fences, no prose, "
-                "no explanation. Just the JSON object or array."
-            ),
-        })
-    messages.append({"role": "user", "content": prompt})
+    # Ensure the word "json" is present (Groq's prompt rule + our own reminder)
+    system_msg = system or ""
+    if "json" not in system_msg.lower():
+        system_msg = (
+            system_msg + " " if system_msg else ""
+        ) + "You return ONLY valid JSON. No markdown fences, no prose, no explanation."
+
+    messages = [
+        {"role": "system", "content": system_msg},
+        {"role": "user", "content": prompt},
+    ]
 
     response = client.chat.completions.create(
-        model=DEFAULT_MODEL,
+        model=model or DEFAULT_MODEL,
         messages=messages,
         temperature=temperature,
         max_tokens=max_tokens,
     )
 
     content = response.choices[0].message.content
-    try:
-        return _extract_json(content)
-    except json.JSONDecodeError as e:
-        raise RuntimeError(
-            f"LLM returned invalid JSON: {e}\n---\nRaw content:\n{content[:600]}"
-        )
+    return _extract_json(content)
 
 
-def call_llm_text(prompt: str, system: str = "", temperature: float = 0.7, max_tokens: int = 1000) -> str:
+def call_llm_text(
+    prompt: str,
+    system: str = "",
+    temperature: float = 0.7,
+    max_tokens: int = 1000,
+    model: str | None = None,
+) -> str:
     """Call Groq and return raw text."""
     client = get_client()
 
@@ -87,7 +115,7 @@ def call_llm_text(prompt: str, system: str = "", temperature: float = 0.7, max_t
     messages.append({"role": "user", "content": prompt})
 
     response = client.chat.completions.create(
-        model=DEFAULT_MODEL,
+        model=model or DEFAULT_MODEL,
         messages=messages,
         temperature=temperature,
         max_tokens=max_tokens,

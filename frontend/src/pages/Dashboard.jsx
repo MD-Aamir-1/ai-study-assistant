@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   getDashboardAnalytics,
   getRecommendationsList,
+  searchTopic,
+  getTopicFull,
 } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import {
@@ -15,10 +18,13 @@ import "./Dashboard.css";
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const navigate = useNavigate();
+
   const [data, setData] = useState(null);
   const [recs, setRecs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [openingRecId, setOpeningRecId] = useState(null);
 
   useEffect(() => {
     if (!user?.student_id) return;
@@ -37,11 +43,33 @@ export default function Dashboard() {
       .catch(() => setRecs([]));
   }, [user?.student_id]);
 
+  const prefetchRec = (rec) => {
+    if (!user?.student_id) return;
+    searchTopic(rec.concept_name, user.student_id, "medium").catch(() => {});
+  };
+
+  const handleOpenRec = async (rec) => {
+    if (!user?.student_id || openingRecId) return;
+    setOpeningRecId(rec.id);
+    try {
+      const res = await searchTopic(rec.concept_name, user.student_id, "medium");
+      getTopicFull(res.data.topic_id).catch(() => {});
+      navigate(`/topic/${res.data.topic_id}`);
+    } catch (err) {
+      console.error(err);
+      setError(
+        err.response?.data?.detail ||
+          "Could not open this topic. Please try again."
+      );
+      setOpeningRecId(null);
+    }
+  };
+
   return (
     <div className="dashboard">
       {error && <div className="dash-error">{error}</div>}
 
-      {/* GREETING */}
+      {/* ---------- GREETING ---------- */}
       <div className="dash-greeting-row">
         <div>
           <h1 className="dash-title">
@@ -55,9 +83,8 @@ export default function Dashboard() {
 
       {data && (
         <>
-          {/* STAT CARDS */}
+          {/* ---------- STAT CARDS ---------- */}
           <div className="dash-stats">
-            {/* Concepts Tested */}
             <div className="stat-card">
               <div className="stat-top">
                 <span className="stat-label">Concepts Tested</span>
@@ -110,7 +137,6 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Average Score */}
             <div className="stat-card">
               <div className="stat-top">
                 <span className="stat-label">Average Score</span>
@@ -125,7 +151,6 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Strong Concepts */}
             <div className="stat-card">
               <div className="stat-top">
                 <span className="stat-label">Strong Concepts</span>
@@ -139,7 +164,6 @@ export default function Dashboard() {
               <div className="stat-info-muted">scoring ≥ 75%</div>
             </div>
 
-            {/* Weak Concepts */}
             <div className="stat-card">
               <div className="stat-top">
                 <span className="stat-label">Weak Concepts</span>
@@ -154,7 +178,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* RECOMMENDED FOR YOU */}
+          {/* ---------- RECOMMENDED FOR YOU ---------- */}
           {recs.length > 0 && (
             <div className="panel">
               <div className="panel-header">
@@ -165,19 +189,38 @@ export default function Dashboard() {
               </div>
               <div className="dash-recs">
                 {recs.map((r, i) => (
-                  <div key={r.id} className="dash-rec-item">
+                  <div
+                    key={r.id}
+                    className="dash-rec-item dash-rec-clickable"
+                    onClick={() => handleOpenRec(r)}
+                    onMouseEnter={() => prefetchRec(r)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        handleOpenRec(r);
+                      }
+                    }}
+                  >
                     <div className="dash-rec-rank">{i + 1}</div>
                     <div className="dash-rec-body">
                       <div className="dash-rec-name">{r.concept_name}</div>
                       <div className="dash-rec-reason">{r.reason}</div>
                     </div>
                     <div className="dash-rec-meta">
-                      <span className="dash-rec-min">
-                        {r.suggested_minutes}m
-                      </span>
-                      <span className="dash-rec-activity">
-                        {r.activity_type}
-                      </span>
+                      {openingRecId === r.id ? (
+                        <span className="dash-rec-opening">Opening...</span>
+                      ) : (
+                        <>
+                          <span className="dash-rec-min">
+                            {r.suggested_minutes}m
+                          </span>
+                          <span className="dash-rec-activity">
+                            {r.activity_type}
+                          </span>
+                        </>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -185,7 +228,7 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* YOUR PERFORMANCE */}
+          {/* ---------- YOUR PERFORMANCE ---------- */}
           <div className="panel">
             <div className="panel-header">
               <h2 className="panel-title">Your Performance</h2>
@@ -213,7 +256,7 @@ export default function Dashboard() {
             )}
           </div>
 
-          {/* AI RECOMMENDATION */}
+          {/* ---------- AI RECOMMENDATION ---------- */}
           <div className="ai-reco-card">
             <div className="ai-reco-icon">
               <Sparkles size={20} />

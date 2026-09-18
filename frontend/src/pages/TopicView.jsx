@@ -1,25 +1,29 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { getTopicFull, regenerateContent } from "../api/client";
 import Markdown from "../components/Markdown";
 import MermaidDiagram from "../components/MermaidDiagram";
 import ConceptModal from "../components/ConceptModal";
+import RelatedTopics from "../components/RelatedTopics";
+import ClickableTypes, { hasValidTypes } from "../components/ClickableTypes";
+import { exportAnswerAsPdf } from "../utils/pdfExport";
 import "../components/Markdown.css";
 import {
   Sparkles,
   RefreshCw,
   ArrowLeft,
-  CheckCircle2,
-  Lightbulb,
-  Target,
-  AlertTriangle,
   Layers,
   BookOpen,
-  Zap,
+  Lightbulb,
+  Target,
   Wrench,
-  XCircle,
-  Info,
+  AlertTriangle,
+  Link2,
   Play,
+  Copy,
+  Check,
+  Download,
+  Zap,
 } from "lucide-react";
 import "./TopicView.css";
 
@@ -32,6 +36,11 @@ export default function TopicView() {
   const [regenerating, setRegenerating] = useState(false);
   const [error, setError] = useState("");
   const [activeConcept, setActiveConcept] = useState(null);
+
+  const [copiedAll, setCopiedAll] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  const contentRef = useRef(null);
 
   useEffect(() => {
     loadTopic();
@@ -52,7 +61,11 @@ export default function TopicView() {
   };
 
   const handleRegenerate = async () => {
-    if (!window.confirm("Regenerate content? This may take 20–30 seconds."))
+    if (
+      !window.confirm(
+        "Regenerate content? This creates a fresh version (~8 sec)."
+      )
+    )
       return;
     setRegenerating(true);
     try {
@@ -65,6 +78,37 @@ export default function TopicView() {
     }
   };
 
+  const handleCopyAll = async () => {
+    if (!contentRef.current) return;
+    try {
+      await navigator.clipboard.writeText(contentRef.current.innerText);
+      setCopiedAll(true);
+      setTimeout(() => setCopiedAll(false), 2000);
+    } catch {
+      setError("Could not copy to clipboard.");
+    }
+  };
+
+  const handleExportPdf = async () => {
+    if (!contentRef.current) return;
+    setExporting(true);
+    try {
+      await exportAnswerAsPdf({
+  title: data?.topic?.name || "Study Material",
+  subtitle: "",
+  sourceElement: contentRef.current,
+  filename: `${
+    data?.topic?.name?.replace(/\s+/g, "-").toLowerCase() || "topic"
+  }.pdf`,
+});
+    } catch (err) {
+      console.error(err);
+      setError("PDF export failed.");
+    } finally {
+      setExporting(false);
+    }
+  };
+
   // ---------- LOADING ----------
   if (loading) {
     return (
@@ -72,8 +116,8 @@ export default function TopicView() {
         <div className="loading-spinner">
           <Sparkles size={28} />
         </div>
-        <h2>Generating your learning content...</h2>
-        <p>This takes about 15–25 seconds the first time.</p>
+        <h2>Preparing your lesson...</h2>
+        <p>This usually takes 5–15 seconds.</p>
         <div className="loading-dots">
           <span></span>
           <span></span>
@@ -83,13 +127,34 @@ export default function TopicView() {
     );
   }
 
-  if (error) {
+    if (error) {
     return (
       <div className="topic-error-wrap">
         <div className="topic-error">{error}</div>
-        <button className="btn-primary" onClick={() => navigate("/search")}>
-          Back to Search
-        </button>
+        <div className="topic-error-actions">
+          <button
+            className="btn-primary"
+            onClick={() => {
+              setError("");
+              loadTopic();
+            }}
+          >
+            <RefreshCw size={14} />
+            Try Again
+          </button>
+          <button
+            className="btn-secondary"
+            onClick={() => navigate("/search")}
+          >
+            Back to Search
+          </button>
+          <button
+            className="btn-secondary"
+            onClick={() => navigate("/")}
+          >
+            Dashboard
+          </button>
+        </div>
       </div>
     );
   }
@@ -99,9 +164,9 @@ export default function TopicView() {
   const { topic, content, concepts } = data;
 
   return (
-    <div className="topic-view">
+    <div className="topic-view" ref={contentRef}>
       {/* ---------- HEADER ---------- */}
-      <div className="topic-header">
+      <div className="topic-header" data-html2canvas-ignore="true">
         <Link to="/search" className="topic-back">
           <ArrowLeft size={16} /> Back to Search
         </Link>
@@ -110,15 +175,50 @@ export default function TopicView() {
           <div>
             <div className="topic-subject-tag">{topic.subject_name}</div>
             <h1 className="topic-title">{topic.name}</h1>
+            {content.tagline && (
+              <p className="topic-tagline">{content.tagline}</p>
+            )}
             <div className="topic-meta">
               <span className={`diff-pill diff-${topic.difficulty}`}>
                 {topic.difficulty}
               </span>
-              <span className="topic-meta-item">{concepts.length} concepts</span>
+              <span className="topic-meta-item">
+                {concepts.length} concepts
+              </span>
             </div>
           </div>
 
-          <div className="topic-actions">
+          <div className="topic-actions" data-html2canvas-ignore="true">
+            <button
+              className="btn-secondary"
+              onClick={handleCopyAll}
+              title="Copy all"
+            >
+              {copiedAll ? (
+                <>
+                  <Check size={14} /> Copied!
+                </>
+              ) : (
+                <>
+                  <Copy size={14} /> Copy
+                </>
+              )}
+            </button>
+            <button
+              className="btn-secondary"
+              onClick={handleExportPdf}
+              disabled={exporting}
+            >
+              {exporting ? (
+                <>
+                  <RefreshCw size={14} className="spin" /> Preparing...
+                </>
+              ) : (
+                <>
+                  <Download size={14} /> PDF
+                </>
+              )}
+            </button>
             <button
               className="btn-secondary"
               onClick={handleRegenerate}
@@ -138,194 +238,126 @@ export default function TopicView() {
         </div>
       </div>
 
-      {/* ---------- CONCEPT CHIPS ---------- */}
-      <section className="topic-concepts-strip">
-        <div className="strip-title">
-          <Layers size={16} />
-          Concepts in this topic
-        </div>
-        <div className="concept-chips">
-          {concepts.map((c) => (
-            <button
-              key={c.id}
-              type="button"
-              className="concept-chip concept-chip-clickable"
-              onClick={() => setActiveConcept(c)}
-              title={`Click to learn more about ${c.name}`}
-            >
-              <span className="concept-chip-name">{c.name}</span>
-              <span
-                className={`concept-chip-imp imp-${c.importance}`}
-                title={`Importance: ${c.importance}/5`}
+      {/* ---------- CONCEPT CHIPS (hidden in PDF) ---------- */}
+      {concepts.length > 0 && (
+        <section
+          className="topic-concepts-strip"
+          data-html2canvas-ignore="true"
+        >
+          <div className="strip-title">
+            <Layers size={16} />
+            Concepts in this topic
+          </div>
+          <div className="concept-chips">
+            {concepts.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                className="concept-chip concept-chip-clickable"
+                onClick={() => setActiveConcept(c)}
+                title={`Click to learn more about ${c.name}`}
               >
-                {c.importance}
-              </span>
-            </button>
-          ))}
-        </div>
-      </section>
+                <span className="concept-chip-name">{c.name}</span>
+                <span
+                  className={`concept-chip-imp imp-${c.importance}`}
+                  title={`Importance: ${c.importance}/5`}
+                >
+                  {c.importance}
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
-      {/* ---------- DEFINITION ---------- */}
-      <Section icon={Info} title="Definition" accent="blue">
-        <p className="topic-text">{content.definition}</p>
-      </Section>
-
-      {/* ---------- PURPOSE + PROBLEM ---------- */}
-      <div className="two-col">
-        <Section icon={Target} title="Purpose" accent="purple">
-          <p className="topic-text">{content.purpose}</p>
+      {/* ---------- 1. INTRO ---------- */}
+      {content.intro_md && (
+        <Section icon={BookOpen} title="Introduction" accent="blue">
+          <Markdown>{content.intro_md}</Markdown>
         </Section>
-        <Section icon={Wrench} title="Problem It Solves" accent="green">
-          <p className="topic-text">{content.problem_solved}</p>
+      )}
+
+      {/* ---------- 2. REAL-WORLD EXAMPLE ---------- */}
+      {content.real_world_example_md && (
+        <Section icon={Lightbulb} title="Real-World Example" accent="yellow">
+          <div className="topic-highlight-block">
+            <Markdown>{content.real_world_example_md}</Markdown>
+          </div>
         </Section>
-      </div>
+      )}
 
-      {/* ---------- CORE CONCEPT ---------- */}
-      <Section icon={Zap} title="Core Concept" accent="orange">
-        <p className="topic-text">{content.core_concept}</p>
-      </Section>
+      {/* ---------- 3. WHY IT'S NEEDED ---------- */}
+      {content.why_needed_md && (
+        <Section
+          icon={Target}
+          title={`Why ${topic.name} Matters`}
+          accent="purple"
+        >
+          <Markdown>{content.why_needed_md}</Markdown>
+        </Section>
+      )}
 
-      {/* ---------- HOW IT WORKS ---------- */}
-      <Section icon={CheckCircle2} title="How It Works" accent="blue">
-        <ol className="step-list">
-          {(content.how_it_works || []).map((s, i) => (
-            <li key={i}>
-              <span className="step-num">{i + 1}</span>
-              <span>{s}</span>
-            </li>
-          ))}
-        </ol>
-      </Section>
+      {/* ---------- 4. HOW IT WORKS ---------- */}
+      {content.how_it_works_md && (
+        <Section icon={Zap} title="How It Works" accent="orange">
+          <Markdown>{content.how_it_works_md}</Markdown>
+        </Section>
+      )}
 
-      {/* ---------- INTUITION ---------- */}
-      <Section icon={Lightbulb} title="Intuition" accent="yellow">
-        <p className="topic-text topic-intuition">{content.intuition}</p>
-      </Section>
-
-      {/* ---------- DIAGRAM ---------- */}
+      {/* ---------- 5. DIAGRAM ---------- */}
       {content.diagram_mermaid && content.diagram_mermaid.trim() && (
         <Section icon={Layers} title="Diagram" accent="purple">
-            <MermaidDiagram code={content.diagram_mermaid} />
-            {content.diagram_caption && (
-              <p className="diagram-caption">{content.diagram_caption}</p>
-            )}
+          <MermaidDiagram code={content.diagram_mermaid} />
+          {content.diagram_caption && (
+            <p className="diagram-caption">{content.diagram_caption}</p>
+          )}
         </Section>
       )}
 
-      {/* ---------- EXAMPLES ---------- */}
-      <Section icon={BookOpen} title="Real-World Examples" accent="green">
-        <ul className="bullet-list">
-          {(content.real_world_examples || []).map((e, i) => (
-            <li key={i}>{e}</li>
-          ))}
-        </ul>
-      </Section>
-
-      <Section icon={Wrench} title="Technical Example" accent="blue">
-        <div className="topic-code-wrap">
-          <Markdown>{content.technical_example}</Markdown>
-        </div>
-      </Section>
-
-      {/* ---------- TYPES ---------- */}
-      {content.types && content.types.length > 0 && (
-        <Section icon={Layers} title="Types" accent="purple">
-          <div className="types-grid">
-            {content.types.map((t, i) => (
-              <div key={i} className="type-card">
-                <div className="type-card-name">{t.name}</div>
-                <div className="type-card-desc">{t.description}</div>
-              </div>
-            ))}
-          </div>
+      {/* ---------- 6. TYPES (clickable names) ---------- */}
+      {hasValidTypes(content.types_md) && (
+        <Section icon={Layers} title="Types & Variants" accent="blue">
+          <ClickableTypes markdown={content.types_md} />
         </Section>
       )}
 
-      {/* ---------- COMPONENTS ---------- */}
-      {content.components && content.components.length > 0 && (
-        <Section icon={Zap} title="Key Components" accent="orange">
-          <div className="chips-row">
-            {content.components.map((c, i) => (
-              <span key={i} className="mini-chip">
-                {c}
-              </span>
-            ))}
-          </div>
+      {/* ---------- 7. APPLICATIONS ---------- */}
+      {content.applications_md && (
+        <Section icon={Target} title="Applications" accent="green">
+          <Markdown>{content.applications_md}</Markdown>
         </Section>
       )}
 
-      {/* ---------- APPLICATIONS ---------- */}
-      <Section icon={Target} title="Applications" accent="green">
-        <div className="chips-row">
-          {(content.applications || []).map((a, i) => (
-            <span key={i} className="mini-chip mini-chip-green">
-              {a}
-            </span>
-          ))}
-        </div>
-      </Section>
-
-      {/* ---------- ADVANTAGES + DISADVANTAGES ---------- */}
-      <div className="two-col">
-        <Section icon={CheckCircle2} title="Advantages" accent="green">
-          <ul className="bullet-list bullet-check">
-            {(content.advantages || []).map((a, i) => (
-              <li key={i}>{a}</li>
-            ))}
-          </ul>
-        </Section>
-        <Section icon={XCircle} title="Disadvantages" accent="red">
-          <ul className="bullet-list bullet-cross">
-            {(content.disadvantages || []).map((d, i) => (
-              <li key={i}>{d}</li>
-            ))}
-          </ul>
-        </Section>
-      </div>
-
-      {/* ---------- MISTAKES + MISCONCEPTIONS ---------- */}
-      <div className="two-col">
-        <Section icon={AlertTriangle} title="Common Mistakes" accent="orange">
-          <ul className="bullet-list bullet-warn">
-            {(content.common_mistakes || []).map((m, i) => (
-              <li key={i}>{m}</li>
-            ))}
-          </ul>
-        </Section>
-        <Section icon={AlertTriangle} title="Misconceptions" accent="red">
-          <ul className="bullet-list bullet-warn">
-            {(content.misconceptions || []).map((m, i) => (
-              <li key={i}>{m}</li>
-            ))}
-          </ul>
-        </Section>
-      </div>
-
-      {/* ---------- PREREQUISITES ---------- */}
-      {content.prerequisites && content.prerequisites.length > 0 && (
-        <Section icon={Info} title="Prerequisites" accent="blue">
-          <div className="chips-row">
-            {content.prerequisites.map((p, i) => (
-              <span key={i} className="mini-chip">
-                {p}
-              </span>
-            ))}
-          </div>
+      {/* ---------- 8. CHALLENGES ---------- */}
+      {content.challenges_md && (
+        <Section icon={AlertTriangle} title="Challenges" accent="red">
+          <Markdown>{content.challenges_md}</Markdown>
         </Section>
       )}
 
-      {/* ---------- SUMMARY ---------- */}
-      <Section icon={Sparkles} title="Summary" accent="purple">
-        <p className="topic-text topic-summary">{content.summary}</p>
-      </Section>
+      {/* ---------- 9. BEST PRACTICES ---------- */}
+      {content.best_practices_md && (
+        <Section icon={Wrench} title="Best Practices" accent="green">
+          <Markdown>{content.best_practices_md}</Markdown>
+        </Section>
+      )}
+
+      {/* ---------- 10. RELATED TOPICS (clickable) ---------- */}
+      {content.related_topics_md && (
+        <Section icon={Link2} title="Related Topics to Explore" accent="purple">
+          <p className="rt-hint" data-html2canvas-ignore="true">
+            Click any topic to open a full learning page on it.
+          </p>
+          <RelatedTopics markdown={content.related_topics_md} />
+        </Section>
+      )}
 
       {/* ---------- BOTTOM CTA ---------- */}
-      <div className="topic-cta">
+      <div className="topic-cta" data-html2canvas-ignore="true">
         <div>
           <h3>Ready to test your understanding?</h3>
           <p>
-            Take a conceptual test to identify exactly which concepts you've
-            mastered and which need revision.
+            Take a short test to see what stuck and what needs another look.
           </p>
         </div>
         <button
@@ -333,7 +365,7 @@ export default function TopicView() {
           onClick={() => navigate(`/quiz?topic=${id}`)}
         >
           <Play size={16} />
-          Start Conceptual Test
+          Start Test
         </button>
       </div>
 
@@ -348,7 +380,7 @@ export default function TopicView() {
   );
 }
 
-/* ---------- Reusable Section Component ---------- */
+/* ---------- Reusable Section ---------- */
 function Section({ icon: Icon, title, accent, children }) {
   return (
     <section className="topic-section">

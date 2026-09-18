@@ -1,158 +1,232 @@
 """
-Generates comprehensive, structured learning content for a topic using Groq.
-Caches result in the learning_contents table.
+Generates GFG-style content + concepts with speed optimizations.
+Uses per-topic lock + text normalizer + LaTeX repair.
 """
 
 import json
-from datetime import datetime
+import re
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 import models
-from services.llm import call_llm_json
+from services.llm import call_llm_json, FAST_MODEL, DEFAULT_MODEL
+
+
+_topic_locks: dict[int, threading.Lock] = {}
+_locks_guard = threading.Lock()
+
+
+def _get_topic_lock(topic_id: int) -> threading.Lock:
+    with _locks_guard:
+        if topic_id not in _topic_locks:
+            _topic_locks[topic_id] = threading.Lock()
+        return _topic_locks[topic_id]
+
+
+def _repair_latex(text: str) -> str:
+    """
+    Fix common LaTeX breakages from JSON escape collisions:
+      TAB + 'ext'  →  '\\text'
+      TAB + 'heta' →  '\\theta'
+      etc.
+    """
+    if not isinstance(text, str):
+        return text
+
+    s = text
+
+    # TAB → \t commands
+    s = s.replace("\t" + "ext", r"\text")
+    s = s.replace("\t" + "imes", r"\times")
+    s = s.replace("\t" + "heta", r"\theta")
+    s = s.replace("\t" + "anh", r"\tanh")
+    s = s.replace("\t" + "an", r"\tan")
+    s = s.replace("\t" + "op", r"\top")
+    s = s.replace("\t" + "o", r"\to")
+    s = s.replace("\t" + "ag", r"\tag")
+    s = s.replace("\t" + "au", r"\tau")
+    s = s.replace("\t" + "ilde", r"\tilde")
+
+    # CR → \r commands
+    s = s.replace("\r" + "ight", r"\right")
+    s = s.replace("\r" + "angle", r"\rangle")
+    s = s.replace("\r" + "floor", r"\rfloor")
+    s = s.replace("\r" + "ceil", r"\rceil")
+    s = s.replace("\r" + "ho", r"\rho")
+
+    # LF → \n commands
+    s = s.replace("\n" + "u", r"\nu")
+    s = s.replace("\n" + "abla", r"\nabla")
+    s = s.replace("\n" + "ewline", r"\newline")
+    s = s.replace("\n" + "onumber", r"\nonumber")
+    s = s.replace("\n" + "otin", r"\notin")
+    s = s.replace("\n" + "eg", r"\neg")
+    s = s.replace("\n" + "eq", r"\neq")
+
+    # Fix "exts.t." mangled from "\text{s.t.}"
+    s = re.sub(r"exts\.t\.", r"\\text{ s.t. }", s)
+    s = re.sub(r"extfor([a-z]+)", r"\\text{ for \1}", s)
+
+    # Collapse double-escaped commands
+    s = s.replace(r"\\text", r"\text")
+    s = s.replace(r"\\times", r"\times")
+    s = s.replace(r"\\theta", r"\theta")
+
+    return s
+
+
+def _normalize_text(value):
+    """Recursively normalize text: real newlines + LaTeX repair."""
+    if isinstance(value, str):
+        s = value.replace("\\\\n", "\n")
+        s = s.replace("\\n", "\n")
+        s = s.replace("\\\\t", "\t")
+        s = s.replace("\\t", "\t")
+        s = s.replace("\\\\r", "")
+        s = s.replace("\\r", "")
+        s = _repair_latex(s)
+        return s
+    if isinstance(value, list):
+        return [_normalize_text(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _normalize_text(v) for k, v in value.items()}
+    return value
 
 
 CONTENT_SYSTEM_PROMPT = (
-    "You are an expert educator producing structured learning content. "
-    "You always respond with valid JSON only, no markdown fences, no prose."
+    "You are a warm, patient teacher writing beginner-friendly educational articles "
+    "in the style of GeeksforGeeks. Plain prose, real-world examples, no jargon without explanation. "
+    "You NEVER invent content that doesn't naturally belong to a topic, "
+    "and you NEVER omit well-known subtypes. "
+    "Return ONLY valid JSON. No markdown fences, no prose outside JSON.\n\n"
+    "CRITICAL LaTeX RULES for JSON output:\n"
+    "- When writing LaTeX in JSON strings, ALWAYS double-escape backslashes.\n"
+    "- Write double-backslash text, times, theta, alpha, beta, frac, sqrt — never single.\n"
+    "- A single backslash becomes a tab or newline character in JSON and breaks the output.\n"
+    "- Avoid complex LaTeX entirely when you can express it in plain words.\n"
+    "- Prefer inline code like `y = mx + b` over complex math syntax."
 )
 
 
-CONTENT_PROMPT_TEMPLATE = """Generate comprehensive, structured learning content about the topic "{topic}" (subject: "{subject}", difficulty: {difficulty}).
+CONTENT_PROMPT_TEMPLATE = """Write a beginner-friendly article about "{topic}" ({subject}, {difficulty}).
 
-Rules:
-- Write for a beginner but be technically accurate and thorough.
-- No fluff. No "In this article..." intros.
-- Every field must be filled.
-- Return ONLY valid JSON matching this schema.
+STYLE (match GeeksforGeeks):
+- Plain prose paragraphs
+- Warm, patient tone
+- Start simple, then go deeper
+- Use REAL newline characters, not backslash-n escapes
 
-IMPORTANT: For "technical_example", use RICH MARKDOWN with this structure:
+DEFINITION STYLE (intro_md):
+Paragraph 1: One clear sentence defining the topic. Then "In simple words, ..." then why it matters with 2-3 real-world examples.
+Paragraph 2 (optional): Deeper definition.
 
-## Technical Example: <short title>
+MATH — KEEP IT SIMPLE:
+- Simple formulas: use backticks like `y = mx + b`
+- Real formulas on their own line: use $$...$$
+- In JSON, write backslashes DOUBLED.
+- Prefer words over symbols. Example: say "sum of squared errors" instead of sigma notation.
+- Avoid complex LaTeX commands unless absolutely needed.
 
-<1-sentence intro>
+BULLET LISTS — CRITICAL FORMATTING:
+For challenges_md, best_practices_md, applications_md, related_topics_md:
+- Write each item on its OWN LINE starting with "- "
+- Never put two items on the same line
+- Format: - **Name:** one-sentence explanation
 
-### Step 1: <name>
-<explanation, use bullet points if helpful>
+Correct:
+- **Bias and Fairness:** Models may reproduce harmful stereotypes.
+- **Hallucination:** Generated outputs can contain plausible but incorrect information.
 
-### Step 2: <name>
-<explanation>
+Wrong: two items on the same line, or all merged into a paragraph.
 
-### Step 3: <name>
-<explanation>
+TYPES SECTION:
+If the topic has WELL-KNOWN subtypes, list them:
+### Type 1: Type Name
+description
 
-Use markdown syntax:
-- ## / ### for headings
-- **bold** for emphasis
-- `code` for identifiers, variable names, values
-- - bullets for lists
-- $$...$$ for math formulas — ALWAYS on their own line as a display block (never inline)
-- Do NOT use $...$ inline math
+If NO, return types_md as EMPTY STRING. Never write "No types available."
 
-Do NOT include a summary table at the end.
+Reference:
+- SVM to SVC, SVR, One-Class SVM, Linear, Kernel
+- Neural Networks to CNN, RNN, Transformer, Feedforward
+- Machine Learning to Supervised, Unsupervised, Reinforcement
+- Generative AI to Text, Image, Audio, Video, Multimodal
+- Transfer Learning to Feature Extraction, Fine-tuning, Domain Adaptation
 
-DIAGRAM RULES (field: "diagram_mermaid"):
-Produce a clean, educational Mermaid diagram. The renderer already applies
-beautiful colors, shadows, and rounded corners — so your job is to produce
-CLEAN STRUCTURE with GOOD LABELS.
+Topics with NO types (return empty): Recursion, Binary Search, HTTP Protocol.
 
-REQUIREMENTS:
-- First line: flowchart TD or flowchart LR
-- 6 to 12 nodes
-- Clear, short labels (2 to 4 words each)
-- Multi-branch structure where meaningful (one parent to several children to one output)
-- Use subgraphs to group related nodes when the topic has clear groupings
-- Use square brackets for all node labels: A[Label Here]
-- Use round brackets for start and end nodes: A(Start Here)
+SECTIONS:
+1. intro_md — 2 paragraphs.
+2. real_world_example_md — 2 paragraphs.
+3. why_needed_md — use ### 1. Reason Name subsections.
+4. how_it_works_md — use ### Step 1: Name subsections with a SPACE after colon.
+5. types_md — May be empty.
+6. applications_md — bullet list (5-6 items, one per line).
+7. challenges_md — bullet list (4-5 items, one per line).
+8. best_practices_md — bullet list (4-5 items, one per line).
+9. related_topics_md — bullet list (4-5 items, one per line).
+10. diagram_mermaid — Mermaid code.
+11. diagram_caption — one line.
 
-STRICT SYNTAX:
-- Node labels must NOT contain: parentheses, colons, semicolons, quotes, commas
-- Use dashes or spaces instead: CPU Central Unit instead of CPU Central Unit
-- No curly braces anywhere in the diagram
-- No trailing semicolons
-- No comments
-- No code fences
-- Emojis in labels ARE allowed and encouraged
+TONE: 900-1300 words.
 
-GOOD EXAMPLE (mimic this structure):
-
-flowchart TD
-    A(📊 Training Data) --> B[🌳 Decision Tree]
-    A --> C[📈 Logistic Regression]
-    A --> D[⚡ SVM Model]
-    A --> E[🧠 Neural Network]
-    B --> F[🔗 Combine Predictions]
-    C --> F
-    D --> F
-    E --> F
-    F --> G(🎯 Final Prediction)
-
-If truly impossible, return empty string "".
-
-Schema:
+Return ONLY this JSON:
 {{
   "title": "string",
-  "definition": "1-2 sentence clear definition",
-  "purpose": "why it exists / what it is used for",
-  "problem_solved": "what problem it solves",
-  "core_concept": "the central idea in 2-4 sentences",
-  "how_it_works": ["step 1", "step 2", "step 3"],
-  "intuition": "an analogy or intuitive explanation",
-  "real_world_examples": ["example 1", "example 2", "example 3"],
-  "technical_example": "a well-structured markdown explanation",
-  "types": [{{"name": "type name", "description": "short description"}}],
-  "components": ["key component 1", "key component 2", "key component 3"],
-  "applications": ["application 1", "application 2", "application 3"],
-  "advantages": ["advantage 1", "advantage 2", "advantage 3"],
-  "disadvantages": ["disadvantage 1", "disadvantage 2", "disadvantage 3"],
-  "common_mistakes": ["mistake 1", "mistake 2", "mistake 3"],
-  "misconceptions": ["misconception 1", "misconception 2"],
-  "prerequisites": ["prereq 1", "prereq 2"],
-  "summary": "2-3 sentence wrap-up",
-  "diagram_mermaid": "Mermaid code following the diagram rules above",
-  "diagram_caption": "1 short sentence describing what the diagram shows"
+  "tagline": "one-line subtitle",
+  "intro_md": "string",
+  "real_world_example_md": "string",
+  "why_needed_md": "string",
+  "how_it_works_md": "string",
+  "types_md": "string",
+  "applications_md": "string",
+  "challenges_md": "string",
+  "best_practices_md": "string",
+  "related_topics_md": "string",
+  "diagram_mermaid": "string",
+  "diagram_caption": "string"
 }}
-
-Requirements:
-- how_it_works: 4-6 steps
-- technical_example: MUST be markdown-formatted
-- diagram_mermaid: MUST follow diagram rules above. No curly braces in labels.
-- diagram_caption: 1 sentence, plain text
-- types: 2-4 entries (use [] if no distinct types)
-- components: 3-5 entries
-- applications: 3-5 entries
-- advantages / disadvantages: 3-4 each
-- common_mistakes: 3-4 entries
-- misconceptions: 2-3 entries
-- prerequisites: 2-4 entries
 
 Topic: {topic}
 """
 
 
-def generate_content(topic_name: str, subject_name: str, difficulty: str) -> dict:
-    """Call Groq and return parsed content dict."""
+def _try_generate(model: str, topic: str, subject: str, difficulty: str) -> dict:
     prompt = CONTENT_PROMPT_TEMPLATE.format(
-        topic=topic_name,
-        subject=subject_name,
-        difficulty=difficulty,
+        topic=topic, subject=subject, difficulty=difficulty
     )
     content = call_llm_json(
         prompt,
         system=CONTENT_SYSTEM_PROMPT,
         temperature=0.6,
-        max_tokens=5500,
+        max_tokens=4000,
+        model=model,
     )
     if not isinstance(content, dict) or "title" not in content:
         raise RuntimeError("LLM returned malformed content")
+    for field in [
+        "tagline", "intro_md", "real_world_example_md", "why_needed_md",
+        "how_it_works_md", "types_md", "applications_md", "challenges_md",
+        "best_practices_md", "related_topics_md", "diagram_mermaid",
+        "diagram_caption",
+    ]:
+        content.setdefault(field, "")
 
-    content.setdefault("diagram_mermaid", "")
-    content.setdefault("diagram_caption", "")
-
+    content = _normalize_text(content)
     return content
 
 
+def generate_content(topic_name: str, subject_name: str, difficulty: str) -> dict:
+    try:
+        return _try_generate(FAST_MODEL, topic_name, subject_name, difficulty)
+    except Exception as e:
+        print(f"[content_service] Fast model failed ({e}), retrying with fallback...")
+        return _try_generate(DEFAULT_MODEL, topic_name, subject_name, difficulty)
+
+
 def get_or_create_content(topic_id: int, db: Session) -> dict:
-    """Return cached content or generate fresh."""
     topic = db.query(models.Topic).filter(models.Topic.id == topic_id).first()
     if not topic:
         raise ValueError(f"Topic {topic_id} not found")
@@ -164,7 +238,7 @@ def get_or_create_content(topic_id: int, db: Session) -> dict:
     )
     if cached:
         try:
-            return json.loads(cached.content_json)
+            return _normalize_text(json.loads(cached.content_json))
         except json.JSONDecodeError:
             db.delete(cached)
             db.commit()
@@ -178,17 +252,31 @@ def get_or_create_content(topic_id: int, db: Session) -> dict:
         topic_id=topic_id,
         content_json=json.dumps(content),
         sources="[]",
-        model_version="openai/gpt-oss-120b",
+        model_version=f"{FAST_MODEL} (with {DEFAULT_MODEL} fallback)",
     )
     db.add(record)
-    db.commit()
-    db.refresh(record)
+
+    try:
+        db.commit()
+        db.refresh(record)
+    except IntegrityError:
+        db.rollback()
+        existing = (
+            db.query(models.LearningContent)
+            .filter(models.LearningContent.topic_id == topic_id)
+            .first()
+        )
+        if existing:
+            try:
+                return _normalize_text(json.loads(existing.content_json))
+            except json.JSONDecodeError:
+                pass
+        raise
 
     return content
 
 
 def invalidate_content(topic_id: int, db: Session) -> bool:
-    """Delete cached content for a topic."""
     record = (
         db.query(models.LearningContent)
         .filter(models.LearningContent.topic_id == topic_id)
@@ -199,3 +287,93 @@ def invalidate_content(topic_id: int, db: Session) -> bool:
     db.delete(record)
     db.commit()
     return True
+
+
+def _gen_content_thread(topic_id: int):
+    from database import SessionLocal
+    db = SessionLocal()
+    try:
+        return get_or_create_content(topic_id, db)
+    finally:
+        db.close()
+
+
+def _gen_concepts_thread(topic_id: int):
+    from services.concept_service import get_or_create_concepts
+    from database import SessionLocal
+    db = SessionLocal()
+    try:
+        return get_or_create_concepts(topic_id, db)
+    finally:
+        db.close()
+
+
+def get_or_create_full(topic_id: int, db: Session) -> tuple[dict, list]:
+    db.expire_all()
+    cached_content = (
+        db.query(models.LearningContent)
+        .filter(models.LearningContent.topic_id == topic_id)
+        .first()
+    )
+    cached_concepts = (
+        db.query(models.Concept)
+        .filter(models.Concept.topic_id == topic_id)
+        .order_by(models.Concept.order_index)
+        .all()
+    )
+
+    if cached_content and cached_concepts:
+        try:
+            return _normalize_text(json.loads(cached_content.content_json)), cached_concepts
+        except json.JSONDecodeError:
+            db.delete(cached_content)
+            db.commit()
+
+    lock = _get_topic_lock(topic_id)
+    with lock:
+        db.expire_all()
+        cached_content = (
+            db.query(models.LearningContent)
+            .filter(models.LearningContent.topic_id == topic_id)
+            .first()
+        )
+        cached_concepts = (
+            db.query(models.Concept)
+            .filter(models.Concept.topic_id == topic_id)
+            .order_by(models.Concept.order_index)
+            .all()
+        )
+
+        if cached_content and cached_concepts:
+            try:
+                return _normalize_text(json.loads(cached_content.content_json)), cached_concepts
+            except json.JSONDecodeError:
+                pass
+
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            f_content = ex.submit(_gen_content_thread, topic_id)
+            f_concepts = ex.submit(_gen_concepts_thread, topic_id)
+
+            content = f_content.result()
+            f_concepts.result()
+
+        db.expire_all()
+        content_record = (
+            db.query(models.LearningContent)
+            .filter(models.LearningContent.topic_id == topic_id)
+            .first()
+        )
+        concepts = (
+            db.query(models.Concept)
+            .filter(models.Concept.topic_id == topic_id)
+            .order_by(models.Concept.order_index)
+            .all()
+        )
+
+        if content_record:
+            try:
+                content = _normalize_text(json.loads(content_record.content_json))
+            except json.JSONDecodeError:
+                pass
+
+        return content, concepts

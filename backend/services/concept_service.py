@@ -1,69 +1,58 @@
 """
-Extracts key concepts from a topic using Groq.
-Saves them in the concepts table with importance + order.
+Extracts key concepts from a topic using Groq (fast model).
+Handles concurrent inserts safely.
 """
 
 from sqlalchemy.orm import Session
 import models
-from services.llm import call_llm_json
+from services.llm import call_llm_json, FAST_MODEL, DEFAULT_MODEL
 
 
 CONCEPT_SYSTEM_PROMPT = (
     "You extract conceptual building blocks from educational topics. "
-    "You always respond with valid JSON only. No markdown fences, no prose."
+    "Return ONLY valid JSON."
 )
 
 
-CONCEPT_PROMPT_TEMPLATE = """Extract the 6-9 most important CONCEPTS from the topic "{topic}" (subject: "{subject}", difficulty: {difficulty}).
+CONCEPT_PROMPT_TEMPLATE = """Extract the 6-8 most important CONCEPTS from "{topic}" ({subject}, {difficulty}).
 
-A "concept" is a specific idea, technique, sub-topic, or principle that:
-- Can be independently tested
-- Is meaningful on its own
-- Is not vague ("Introduction", "Overview", "Basics" are BAD concepts)
+A concept is a specific testable idea (not vague like "Introduction" or "Basics").
 
-Rules:
-- Prefer 6-9 concepts
-- Order them from foundational (order_index 0) to advanced
-- Avoid vague or generic names
-- Every concept must be specific to this topic
-
-Return ONLY a JSON object matching this schema:
+Return ONLY:
 {{
   "concepts": [
-    {{
-      "name": "concise concept name (2-6 words)",
-      "description": "one clear sentence explaining what it is",
-      "importance": 1
-    }}
+    {{"name": "2-6 word name", "description": "one clear sentence", "importance": 3}}
   ]
 }}
 
-importance guide:
-  5 = absolutely essential to understand the topic
-  4 = very important
-  3 = important (default)
-  2 = useful background
-  1 = niche detail
+importance is 1-5 (5 = essential).
 
 Topic: {topic}
 """
 
 
 def extract_concepts(topic_name: str, subject_name: str, difficulty: str) -> list[dict]:
-    """Call Groq and return list of concept dicts."""
     prompt = CONCEPT_PROMPT_TEMPLATE.format(
-        topic=topic_name,
-        subject=subject_name,
-        difficulty=difficulty,
-    )
-    result = call_llm_json(
-        prompt,
-        system=CONCEPT_SYSTEM_PROMPT,
-        temperature=0.5,
-        max_tokens=1800,
+        topic=topic_name, subject=subject_name, difficulty=difficulty
     )
 
-    # Expect {"concepts": [...]}
+    try:
+        result = call_llm_json(
+            prompt,
+            system=CONCEPT_SYSTEM_PROMPT,
+            temperature=0.4,
+            max_tokens=1200,
+            model=FAST_MODEL,
+        )
+    except Exception:
+        result = call_llm_json(
+            prompt,
+            system=CONCEPT_SYSTEM_PROMPT,
+            temperature=0.4,
+            max_tokens=1200,
+            model=DEFAULT_MODEL,
+        )
+
     if isinstance(result, dict) and "concepts" in result:
         concepts = result["concepts"]
     elif isinstance(result, list):
@@ -71,7 +60,6 @@ def extract_concepts(topic_name: str, subject_name: str, difficulty: str) -> lis
     else:
         raise RuntimeError("LLM returned unexpected structure for concepts")
 
-    # Validate + clean
     cleaned = []
     for i, c in enumerate(concepts):
         if not isinstance(c, dict):
@@ -94,14 +82,11 @@ def extract_concepts(topic_name: str, subject_name: str, difficulty: str) -> lis
 
     if len(cleaned) < 3:
         raise RuntimeError("LLM returned too few concepts")
-
     return cleaned
 
 
 def get_or_create_concepts(topic_id: int, db: Session, force: bool = False) -> list[models.Concept]:
-    """
-    Return existing concepts; if none exist (or force=True), extract and save.
-    """
+    """Return existing concepts; if none exist (or force=True), extract and save."""
     topic = db.query(models.Topic).filter(models.Topic.id == topic_id).first()
     if not topic:
         raise ValueError(f"Topic {topic_id} not found")
@@ -116,7 +101,6 @@ def get_or_create_concepts(topic_id: int, db: Session, force: bool = False) -> l
     if existing and not force:
         return existing
 
-    # If force, delete existing first
     if existing and force:
         for c in existing:
             db.delete(c)
@@ -128,6 +112,17 @@ def get_or_create_concepts(topic_id: int, db: Session, force: bool = False) -> l
     concepts_data = extract_concepts(
         topic.name, subject_name, topic.difficulty or "medium"
     )
+
+    # Re-check right before insert (in case another thread got here first)
+    db.expire_all()
+    already = (
+        db.query(models.Concept)
+        .filter(models.Concept.topic_id == topic_id)
+        .order_by(models.Concept.order_index)
+        .all()
+    )
+    if already:
+        return already
 
     created = []
     for c in concepts_data:
@@ -144,5 +139,4 @@ def get_or_create_concepts(topic_id: int, db: Session, force: bool = False) -> l
     db.commit()
     for c in created:
         db.refresh(c)
-
     return created

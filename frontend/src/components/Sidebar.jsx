@@ -2,6 +2,7 @@ import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard,
   Search,
+  FileUp,
   HelpCircle,
   Target,
   Sparkles,
@@ -9,12 +10,14 @@ import {
   Settings,
   GraduationCap,
   X,
+  ChevronLeft,
 } from "lucide-react";
 import "./Sidebar.css";
 
 const NAV_ITEMS = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/search", label: "Search", icon: Search },
+  { to: "/upload", label: "Upload & Learn", icon: FileUp },
   { to: "/quiz", label: "Test", icon: HelpCircle },
   { to: "/gaps", label: "Knowledge Gaps", icon: Target },
   { to: "/recommendations", label: "Recommendations", icon: Sparkles },
@@ -22,12 +25,26 @@ const NAV_ITEMS = [
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 
-export default function Sidebar({ mobileOpen = false, onClose = () => {} }) {
+export default function Sidebar({
+  mobileOpen = false,
+  onClose = () => {},
+  collapsed = false,
+  onToggleCollapse = () => {},
+}) {
   return (
-    <aside className={`sidebar ${mobileOpen ? "open" : ""}`}>
+    <aside
+      className={`sidebar ${mobileOpen ? "open" : ""} ${
+        collapsed ? "collapsed" : ""
+      }`}
+    >
+      {/* Brand row */}
       <div className="sidebar-brand">
-        <GraduationCap size={26} />
-        <span>AI Study Assistant</span>
+        <div className="sidebar-brand-icon">
+          <GraduationCap size={26} />
+        </div>
+        <span className="sidebar-brand-text">AI Study Assistant</span>
+
+        {/* Desktop toggle — hidden on mobile */}
         <button
           className="sidebar-close"
           onClick={onClose}
@@ -37,6 +54,7 @@ export default function Sidebar({ mobileOpen = false, onClose = () => {} }) {
         </button>
       </div>
 
+      {/* Nav */}
       <nav className="sidebar-nav">
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
@@ -49,13 +67,27 @@ export default function Sidebar({ mobileOpen = false, onClose = () => {} }) {
                 `nav-item ${isActive ? "active" : ""}`
               }
               onClick={onClose}
+              title={collapsed ? item.label : undefined}
             >
-              <Icon size={18} />
+              <Icon size={20} />
               <span>{item.label}</span>
             </NavLink>
           );
         })}
       </nav>
+
+      {/* Floating collapse toggle — only on desktop */}
+      <button
+        className="sidebar-toggle"
+        onClick={onToggleCollapse}
+        aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+      >
+        <ChevronLeft
+          size={16}
+          className={`sidebar-toggle-icon ${collapsed ? "flipped" : ""}`}
+        />
+      </button>
     </aside>
   );
 }

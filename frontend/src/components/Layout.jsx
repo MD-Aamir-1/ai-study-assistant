@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 import "./Layout.css";
@@ -6,11 +6,21 @@ import "./Layout.css";
 export default function Layout({ children }) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  const [collapsed, setCollapsed] = useState(() => {
+    return localStorage.getItem("sidebar_collapsed") === "true";
+  });
+
+  useEffect(() => {
+    localStorage.setItem("sidebar_collapsed", collapsed ? "true" : "false");
+  }, [collapsed]);
+
   return (
-    <div className="app-layout">
+    <div className={`app-layout ${collapsed ? "sidebar-collapsed" : ""}`}>
       <Sidebar
         mobileOpen={mobileOpen}
         onClose={() => setMobileOpen(false)}
+        collapsed={collapsed}
+        onToggleCollapse={() => setCollapsed((c) => !c)}
       />
 
       {mobileOpen && (

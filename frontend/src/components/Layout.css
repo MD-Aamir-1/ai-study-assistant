@@ -11,6 +11,11 @@
   transition: margin-left 0.25s ease;
 }
 
+/* When sidebar is collapsed on desktop */
+.app-layout.sidebar-collapsed .app-main {
+  margin-left: var(--sidebar-width-collapsed);
+}
+
 .app-content {
   flex: 1;
   padding: 24px;
@@ -28,14 +33,18 @@
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 /* ---------- TABLET + MOBILE ---------- */
 @media (max-width: 900px) {
   .app-main {
-    margin-left: 0;
+    margin-left: 0 !important;
   }
 
   .app-content {

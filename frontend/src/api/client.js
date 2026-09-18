@@ -64,5 +64,20 @@ export const askAITutor = (studentId, question) =>
 // ---------- CONCEPT DEEP-DIVE ----------
 export const getConceptContent = (conceptId, force = false) =>
   API.post(`/concepts/${conceptId}/content?force=${force}`);
+// ---------- FILE UPLOAD & LEARN ----------
+export const extractFile = (file) => {
+  const formData = new FormData();
+  formData.append("file", file);
+  return API.post("/files/extract", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+};
+
+export const learnFromText = (text, instruction, studentId = null) =>
+  API.post("/ai/learn-from-text", {
+    text,
+    instruction,
+    student_id: studentId,
+  });
 
 export default API;

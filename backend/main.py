@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -318,7 +318,7 @@ def update_performance(performance_id: int, score: float, attempts: int = 1, db:
 
 
 # ==================================================
-# STUDY PLAN (legacy, kept for compatibility)
+# STUDY PLAN (legacy)
 # ==================================================
 @app.post("/study-plan", response_model=schemas.StudyPlanResponse)
 def create_study_plan(plan: schemas.StudyPlanCreate, db: Session = Depends(get_db)):
@@ -346,7 +346,7 @@ def complete_study_plan(plan_id: int, db: Session = Depends(get_db)):
 
 
 # ==================================================
-# QUIZ QUESTIONS (legacy, kept for compatibility)
+# QUIZ QUESTIONS (legacy)
 # ==================================================
 @app.post("/quiz/questions", response_model=schemas.QuizQuestionResponse)
 def create_quiz_question(q: schemas.QuizQuestionCreate, db: Session = Depends(get_db)):
@@ -397,7 +397,7 @@ def get_student_quiz_results(student_id: int, db: Session = Depends(get_db)):
 
 
 # ==================================================
-# DASHBOARD ANALYTICS (concept-based)
+# DASHBOARD ANALYTICS
 # ==================================================
 @app.get("/analytics/dashboard/{student_id}")
 def dashboard_analytics(student_id: int, db: Session = Depends(get_db)):
@@ -405,25 +405,21 @@ def dashboard_analytics(student_id: int, db: Session = Depends(get_db)):
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
 
-    # Subjects
     subjects = db.query(models.Subject).filter(models.Subject.student_id == student_id).all()
     total_subjects = len(subjects)
 
-    # Concept stats
     stats = db.query(models.ConceptStat).filter(models.ConceptStat.student_id == student_id).all()
     concepts_tested = len(stats)
     avg_score = round(sum(s.score for s in stats) / concepts_tested, 1) if concepts_tested else 0.0
     strong_concepts = sum(1 for s in stats if s.score >= 75)
     weak_concepts = sum(1 for s in stats if s.score < 50)
 
-    # Total concepts available
     total_concepts = 0
     for subject in subjects:
         topics = db.query(models.Topic).filter(models.Topic.subject_id == subject.id).all()
         for topic in topics:
             total_concepts += db.query(models.Concept).filter(models.Concept.topic_id == topic.id).count()
 
-    # Test sessions + streak from question_attempts
     attempts = db.query(models.QuestionAttempt).filter(
         models.QuestionAttempt.student_id == student_id
     ).all()
@@ -447,7 +443,6 @@ def dashboard_analytics(student_id: int, db: Session = Depends(get_db)):
                 elif d < cursor:
                     break
 
-    # Subject performance from concept stats
     subject_performance = []
     for subject in subjects:
         topic_concept_scores = []
@@ -472,7 +467,6 @@ def dashboard_analytics(student_id: int, db: Session = Depends(get_db)):
             "topics_count": len(topics),
         })
 
-    # AI recommendation
     from recommendation import get_recommendations
     recs = get_recommendations(student_id, db)
     top_rec = recs[0] if recs else None
@@ -564,7 +558,6 @@ def ai_ask(req: AIAskRequest, db: Session = Depends(get_db)):
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
 
-    # Pull concept-level weaknesses (score < 65)
     stats = (
         db.query(models.ConceptStat)
         .filter(models.ConceptStat.student_id == req.student_id)
@@ -592,7 +585,6 @@ def ai_ask(req: AIAskRequest, db: Session = Depends(get_db)):
             "attempts": s.attempts,
         })
 
-    # Sort by lowest score first
     weak.sort(key=lambda x: x["score"])
 
     try:
@@ -612,7 +604,11 @@ def ai_ask(req: AIAskRequest, db: Session = Depends(get_db)):
 # PHASE B — TOPIC SEARCH, CONTENT & CONCEPTS
 # ==================================================
 import json
-from services.content_service import get_or_create_content, invalidate_content
+from services.content_service import (
+    get_or_create_content,
+    get_or_create_full,
+    invalidate_content,
+)
 from services.concept_service import get_or_create_concepts
 
 
@@ -736,6 +732,10 @@ def list_topic_concepts(topic_id: int, db: Session = Depends(get_db)):
 
 @app.get("/topics/{topic_id}/full")
 def get_topic_full(topic_id: int, db: Session = Depends(get_db)):
+    """
+    Return topic + content + concepts.
+    Content and concepts are generated IN PARALLEL on cache miss (~8-12s total).
+    """
     topic = db.query(models.Topic).filter(models.Topic.id == topic_id).first()
     if not topic:
         raise HTTPException(status_code=404, detail="Topic not found")
@@ -743,14 +743,9 @@ def get_topic_full(topic_id: int, db: Session = Depends(get_db)):
     subject = db.query(models.Subject).filter(models.Subject.id == topic.subject_id).first()
 
     try:
-        content = get_or_create_content(topic_id, db)
+        content, concepts = get_or_create_full(topic_id, db)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Content failed: {e}")
-
-    try:
-        concepts = get_or_create_concepts(topic_id, db)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Concepts failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
 
     return {
         "topic": {
@@ -765,6 +760,40 @@ def get_topic_full(topic_id: int, db: Session = Depends(get_db)):
             {"id": c.id, "name": c.name, "description": c.description, "importance": c.importance, "order_index": c.order_index}
             for c in concepts
         ],
+    }
+
+
+# ==================================================
+# CONCEPT DEEP-DIVE CONTENT
+# ==================================================
+from services.concept_content_service import (
+    get_or_create_concept_content,
+    invalidate_concept_content,
+)
+
+
+@app.post("/concepts/{concept_id}/content")
+def get_concept_content_endpoint(
+    concept_id: int, force: bool = False, db: Session = Depends(get_db)
+):
+    concept = db.query(models.Concept).filter(models.Concept.id == concept_id).first()
+    if not concept:
+        raise HTTPException(status_code=404, detail="Concept not found")
+
+    try:
+        if force:
+            invalidate_concept_content(concept_id, db)
+        content = get_or_create_concept_content(concept_id, db)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Concept generation failed: {e}")
+
+    topic = db.query(models.Topic).filter(models.Topic.id == concept.topic_id).first()
+
+    return {
+        "concept_id": concept_id,
+        "concept_name": concept.name,
+        "topic_name": topic.name if topic else "—",
+        "content": content,
     }
 
 
@@ -821,8 +850,6 @@ def get_student_concepts(student_id: int, db: Session = Depends(get_db)):
     stats = db.query(models.ConceptStat).filter(models.ConceptStat.student_id == student_id).all()
 
     from collections import defaultdict
-    from ml_predictor import predict_risk
-
     by_topic = defaultdict(list)
 
     for s in stats:
@@ -833,7 +860,6 @@ def get_student_concepts(student_id: int, db: Session = Depends(get_db)):
         if not topic:
             continue
 
-        # ---------- ML risk prediction for this concept ----------
         try:
             risk = predict_risk(
                 score=s.score,
@@ -844,7 +870,6 @@ def get_student_concepts(student_id: int, db: Session = Depends(get_db)):
             risk_prob = risk["probability"]
             risk_conf = risk["confidence"]
         except Exception:
-            # ML not available — graceful fallback
             at_risk = s.score < 50
             risk_prob = 0.5
             risk_conf = "low"
@@ -859,7 +884,6 @@ def get_student_concepts(student_id: int, db: Session = Depends(get_db)):
             "correct": s.correct,
             "confidence": s.confidence,
             "trend": s.trend,
-            # NEW ML fields
             "at_risk": at_risk,
             "risk_probability": risk_prob,
             "risk_confidence": risk_conf,
@@ -929,36 +953,147 @@ def complete_rec(rec_id: int, student_id: int, db: Session = Depends(get_db)):
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     return {"message": "Marked as complete", "id": rec.id, "status": rec.status}
-# ==================================================
-# CONCEPT DEEP-DIVE CONTENT
-# ==================================================
-from services.concept_content_service import (
-    get_or_create_concept_content,
-    invalidate_concept_content,
-)
 
 
-@app.post("/concepts/{concept_id}/content")
-def get_concept_content_endpoint(
-    concept_id: int, force: bool = False, db: Session = Depends(get_db)
-):
-    """Generate (or return cached) deep-dive content for a single concept."""
-    concept = db.query(models.Concept).filter(models.Concept.id == concept_id).first()
-    if not concept:
-        raise HTTPException(status_code=404, detail="Concept not found")
+# ==================================================
+# FILE UPLOAD + TEXT EXTRACTION + LEARN FROM TEXT
+# ==================================================
+from services.file_service import extract_text
+from ai_tutor import get_client
+
+
+@app.post("/files/extract")
+async def extract_file_content(file: UploadFile = File(...)):
+    """Upload a PDF, image, or text file → returns extracted text."""
+    contents = await file.read()
+    if len(contents) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large. Max 10 MB.")
+
+    if not contents:
+        raise HTTPException(status_code=400, detail="Empty file.")
 
     try:
-        if force:
-            invalidate_concept_content(concept_id, db)
-        content = get_or_create_concept_content(concept_id, db)
+        result = extract_text(contents, file.content_type or "", file.filename or "")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Concept generation failed: {e}")
-
-    topic = db.query(models.Topic).filter(models.Topic.id == concept.topic_id).first()
+        raise HTTPException(status_code=500, detail=f"Extraction failed: {e}")
 
     return {
-        "concept_id": concept_id,
-        "concept_name": concept.name,
-        "topic_name": topic.name if topic else "—",
-        "content": content,
+        "filename": file.filename,
+        "content_type": file.content_type,
+        "source_type": result["source_type"],
+        "pages": result["pages"],
+        "text": result["text"],
+        "char_count": len(result["text"]),
+    }
+
+
+LEARN_SYSTEM_PROMPT = """You are a senior educator who writes comprehensive, GFG-quality educational content.
+
+The user has provided text extracted from a document (PDF, image, or text file) along with an instruction.
+
+CORE PRINCIPLES:
+1. NEVER REFUSE. Always produce substantive, helpful educational content — even if the reference text is extremely short (e.g., just a topic name like "Machine Learning").
+2. Treat the uploaded text as REFERENCE MATERIAL, not as your only allowed knowledge. You are a teacher, not a fact-checker. Use your general expertise to teach comprehensively.
+3. If the reference is detailed → ground your explanations in it and cite it where relevant.
+4. If the reference is sparse → use your general knowledge to write a full, rich tutorial on the topic it mentions.
+5. If the reference contains a specific question → answer it thoroughly with reasoning.
+6. If the instruction asks for a specific format → follow it.
+
+DEPTH REQUIREMENTS:
+- Write 2000-4000 words of RICH, well-structured markdown
+- Every section must have multiple paragraphs (not one-liners)
+- Include at least 2 concrete examples with real numbers where applicable
+- Include at least 1 comparison table where relevant
+- Include code snippets if the topic involves programming
+- Include formulas (using $$...$$ on their own line) where relevant
+- Explain WHY, not just WHAT
+- Anticipate beginner confusion and address it
+
+STRUCTURE:
+# <Topic Title>
+<2-3 sentence intro>
+## What Is It? (3-4 paragraphs)
+## Why Does It Matter? (3-4 paragraphs)
+## Core Concepts / How It Works (with ### sub-headings)
+## Types / Variants (if applicable)
+## Real-World Examples (3-4 examples as ### subsections)
+## Worked Example (specific, with numbers, step-by-step)
+## Advantages (detailed list with explanations)
+## Disadvantages / Limitations (detailed list)
+## Common Mistakes (detailed list)
+## Comparison with Alternatives (table if relevant)
+## Key Takeaways (5-8 numbered points)
+## Practice / Further Study (3-5 problems or next topics)
+
+FORMATTING:
+- Use markdown headings (##, ###)
+- Use **bold** for key terms
+- Use `code` for identifiers and short inline formulas
+- Use $$...$$ for display math — ALWAYS on its own line, never inline
+- Use - or 1. for lists
+- Use tables when comparing things
+- Use fenced code blocks for code
+
+Never say "the source doesn't provide enough information". Instead, teach what you know.
+
+End with one short follow-up question to check the learner's understanding.
+"""
+
+
+class LearnFromTextRequest(BaseModel):
+    text: str
+    instruction: str
+    student_id: int | None = None
+
+
+@app.post("/ai/learn-from-text")
+def learn_from_text(req: LearnFromTextRequest):
+    """Generate comprehensive educational content from uploaded text + instruction."""
+    text = (req.text or "").strip()
+    instruction = (req.instruction or "").strip()
+
+    if not instruction:
+        raise HTTPException(status_code=400, detail="No instruction provided.")
+
+    if not text:
+        text = "(The uploaded file contained no readable text. Use the instruction as the topic.)"
+
+    max_chars = 12000
+    truncated = False
+    if len(text) > max_chars:
+        text = text[:max_chars]
+        truncated = True
+
+    user_message = (
+        f"REFERENCE TEXT FROM UPLOADED FILE:\n"
+        f"\"\"\"\n{text}\n\"\"\"\n\n"
+        f"USER'S INSTRUCTION: {instruction}\n\n"
+        f"Remember: write a COMPREHENSIVE, GFG-QUALITY response of 2000-4000 words. "
+        f"Do not refuse. Use your general knowledge to expand beyond the reference if the reference is sparse."
+    )
+
+    try:
+        client = get_client()
+        response = client.chat.completions.create(
+            model="openai/gpt-oss-120b",
+            messages=[
+                {"role": "system", "content": LEARN_SYSTEM_PROMPT},
+                {"role": "user", "content": user_message},
+            ],
+            temperature=0.6,
+            max_tokens=8000,
+        )
+        answer = response.choices[0].message.content.strip()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
+
+    return {
+        "instruction": instruction,
+        "answer": answer,
+        "truncated": truncated,
+        "source_chars": len(text),
     }

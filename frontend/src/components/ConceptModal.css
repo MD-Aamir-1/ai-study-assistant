@@ -391,3 +391,39 @@
   .concept-modal-footer .btn-secondary,
   .concept-modal-footer .btn-primary { flex: 1; justify-content: center; }
 }
+/* ---------- Error display ---------- */
+.concept-modal-error {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px 20px;
+  background: var(--danger-light);
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+}
+
+.concept-modal-error-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.concept-modal-error-row svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.concept-modal-error-row p {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--danger);
+}
+
+.concept-modal-error-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
