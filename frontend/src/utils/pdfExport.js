@@ -8,10 +8,27 @@ const A4 = {
   footerHeight: 12,
 };
 
+/**
+ * Detect if user is on a small screen where PDF text needs to be larger.
+ * A4 shrunk to ~70mm on phone = 33% zoom → 12pt feels like 4pt.
+ */
+function getFontScale() {
+  const isMobileUA =
+    /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|WPDesktop/i.test(
+      navigator.userAgent
+    );
+  const width = window.innerWidth;
+
+  if (isMobileUA || width < 500) return 2.0;
+  if (width < 900) return 1.6;
+  return 1.0;
+}
+
 export async function exportElementToPdf(sourceElement, filename, opts = {}) {
   if (!sourceElement) throw new Error("Nothing to export");
 
   const { title = "Study Material" } = opts;
+  const scale = getFontScale();
 
   const wrapper = document.createElement("div");
   wrapper.className = "pdf-export-wrapper";
@@ -25,8 +42,9 @@ export async function exportElementToPdf(sourceElement, filename, opts = {}) {
     margin: 0;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     color: #0f172a;
-    font-size: 18px;
+    font-size: ${18 * scale}px;
     line-height: 1.7;
+    --pdf-scale: ${scale};
   `;
 
   const cleanupStyle = document.createElement("style");
@@ -52,7 +70,7 @@ export async function exportElementToPdf(sourceElement, filename, opts = {}) {
       display: none !important;
     }
 
-    /* ============ SECTION BOXES ============ */
+    /* Section boxes stripped */
     .pdf-export-wrapper .topic-section,
     .pdf-export-wrapper .topic-concepts-strip,
     .pdf-export-wrapper .topic-cta,
@@ -69,20 +87,22 @@ export async function exportElementToPdf(sourceElement, filename, opts = {}) {
       border: none !important;
       border-radius: 0 !important;
       padding: 0 !important;
-      margin: 0 0 20px 0 !important;
+      margin: 0 0 calc(20px * var(--pdf-scale, 1)) 0 !important;
     }
     .pdf-export-wrapper .section-body { padding-left: 0 !important; }
     .pdf-export-wrapper .section-heading-icon { display: none !important; }
-    .pdf-export-wrapper .section-heading { margin: 0 0 10px 0 !important; }
+    .pdf-export-wrapper .section-heading {
+      margin: 0 0 calc(10px * var(--pdf-scale, 1)) 0 !important;
+    }
     .pdf-export-wrapper .section-heading-text {
-      font-size: 19px !important;
+      font-size: calc(19px * var(--pdf-scale, 1)) !important;
       font-weight: 800 !important;
       color: #0f172a !important;
-      padding-bottom: 5px !important;
-      border-bottom: 1.5px solid #cbd5e1 !important;
+      padding-bottom: calc(5px * var(--pdf-scale, 1)) !important;
+      border-bottom: calc(1.5px * var(--pdf-scale, 1)) solid #cbd5e1 !important;
     }
 
-    /* ============ CONCEPT CHIPS ============ */
+    /* Concept chips */
     .pdf-export-wrapper .concept-chips { display: block !important; }
     .pdf-export-wrapper .concept-chip {
       display: inline !important;
@@ -95,26 +115,26 @@ export async function exportElementToPdf(sourceElement, filename, opts = {}) {
     .pdf-export-wrapper .concept-chip-name {
       font-weight: 600 !important;
       color: #0f172a !important;
-      font-size: 15px !important;
+      font-size: calc(15px * var(--pdf-scale, 1)) !important;
     }
     .pdf-export-wrapper .concept-chip-name::after { content: ", " !important; }
     .pdf-export-wrapper .concept-chip:last-child .concept-chip-name::after { content: "" !important; }
     .pdf-export-wrapper .concept-chip-imp { display: none !important; }
     .pdf-export-wrapper .strip-title {
-      font-size: 14px !important;
+      font-size: calc(14px * var(--pdf-scale, 1)) !important;
       color: #475569 !important;
-      margin-bottom: 6px !important;
+      margin-bottom: calc(6px * var(--pdf-scale, 1)) !important;
       text-transform: uppercase !important;
       font-weight: 700 !important;
     }
 
-    /* ============ RELATED TOPICS ============ */
+    /* Related topics */
     .pdf-export-wrapper .rt-grid { display: block !important; }
     .pdf-export-wrapper .rt-card {
       display: block !important;
       background: transparent !important;
       border: none !important;
-      padding: 3px 0 !important;
+      padding: calc(3px * var(--pdf-scale, 1)) 0 !important;
       margin: 0 !important;
       text-align: left !important;
     }
@@ -123,7 +143,7 @@ export async function exportElementToPdf(sourceElement, filename, opts = {}) {
     .pdf-export-wrapper .rt-card-body { display: block !important; }
     .pdf-export-wrapper .rt-card-name {
       display: inline !important;
-      font-size: 17px !important;
+      font-size: calc(17px * var(--pdf-scale, 1)) !important;
       color: #0f172a !important;
       font-weight: 700 !important;
     }
@@ -134,66 +154,66 @@ export async function exportElementToPdf(sourceElement, filename, opts = {}) {
     }
     .pdf-export-wrapper .rt-card-desc {
       display: inline !important;
-      font-size: 17px !important;
+      font-size: calc(17px * var(--pdf-scale, 1)) !important;
       color: #475569 !important;
     }
     .pdf-export-wrapper .rt-hint { display: none !important; }
 
-    /* ============ CLICKABLE TYPES ============ */
+    /* Clickable types */
     .pdf-export-wrapper .ct-link {
       color: #0f172a !important;
       text-decoration: none !important;
       font-weight: 700 !important;
       display: inline !important;
-      font-size: 17px !important;
+      font-size: calc(17px * var(--pdf-scale, 1)) !important;
     }
     .pdf-export-wrapper .ct-heading {
-      font-size: 17px !important;
+      font-size: calc(17px * var(--pdf-scale, 1)) !important;
       color: #0f172a !important;
-      margin: 0 0 4px 0 !important;
+      margin: 0 0 calc(4px * var(--pdf-scale, 1)) 0 !important;
     }
     .pdf-export-wrapper .ct-desc {
-      font-size: 17px !important;
+      font-size: calc(17px * var(--pdf-scale, 1)) !important;
       color: #475569 !important;
     }
 
-    /* ============ HIDE BUTTONS ============ */
+    /* Hide buttons */
     .pdf-export-wrapper button,
     .pdf-export-wrapper .spin { display: none !important; }
 
-    /* ============ MARKDOWN CONTENT ============ */
+    /* Markdown content */
     .pdf-export-wrapper .md-content {
-      font-size: 17px !important;
+      font-size: calc(17px * var(--pdf-scale, 1)) !important;
       line-height: 1.75 !important;
       color: #0f172a !important;
     }
     .pdf-export-wrapper .md-content h1,
     .pdf-export-wrapper .md-content h2 {
-      font-size: 21px !important;
-      margin: 18px 0 10px 0 !important;
+      font-size: calc(21px * var(--pdf-scale, 1)) !important;
+      margin: calc(18px * var(--pdf-scale, 1)) 0 calc(10px * var(--pdf-scale, 1)) 0 !important;
       color: #0f172a !important;
       font-weight: 800 !important;
       line-height: 1.3 !important;
     }
     .pdf-export-wrapper .md-content h3,
     .pdf-export-wrapper .md-content h4 {
-      font-size: 18px !important;
-      margin: 14px 0 6px 0 !important;
+      font-size: calc(18px * var(--pdf-scale, 1)) !important;
+      margin: calc(14px * var(--pdf-scale, 1)) 0 calc(6px * var(--pdf-scale, 1)) 0 !important;
       color: #0f172a !important;
       font-weight: 700 !important;
       line-height: 1.3 !important;
     }
     .pdf-export-wrapper .md-content p {
-      margin: 0 0 12px 0 !important;
+      margin: 0 0 calc(12px * var(--pdf-scale, 1)) 0 !important;
     }
     .pdf-export-wrapper .md-content ul,
     .pdf-export-wrapper .md-content ol {
-      margin: 0 0 12px 0 !important;
-      padding-left: 26px !important;
+      margin: 0 0 calc(12px * var(--pdf-scale, 1)) 0 !important;
+      padding-left: calc(26px * var(--pdf-scale, 1)) !important;
     }
     .pdf-export-wrapper .md-content li {
-      margin-bottom: 6px !important;
-      font-size: 17px !important;
+      margin-bottom: calc(6px * var(--pdf-scale, 1)) !important;
+      font-size: calc(17px * var(--pdf-scale, 1)) !important;
     }
     .pdf-export-wrapper .md-content strong {
       font-weight: 700 !important;
@@ -203,55 +223,55 @@ export async function exportElementToPdf(sourceElement, filename, opts = {}) {
       background: #f1f5f9 !important;
       border: 1px solid #e2e8f0 !important;
       border-radius: 4px !important;
-      padding: 1px 5px !important;
+      padding: 1px calc(5px * var(--pdf-scale, 1)) !important;
       font-family: Consolas, Monaco, monospace !important;
-      font-size: 15px !important;
+      font-size: calc(15px * var(--pdf-scale, 1)) !important;
       color: #2563eb !important;
     }
     .pdf-export-wrapper .md-content pre {
       background: #f8fafc !important;
       border: 1px solid #e2e8f0 !important;
       border-radius: 8px !important;
-      padding: 14px 16px !important;
+      padding: calc(14px * var(--pdf-scale, 1)) calc(16px * var(--pdf-scale, 1)) !important;
       white-space: pre-wrap !important;
       word-wrap: break-word !important;
-      font-size: 15px !important;
+      font-size: calc(15px * var(--pdf-scale, 1)) !important;
       line-height: 1.6 !important;
-      margin: 14px 0 !important;
+      margin: calc(14px * var(--pdf-scale, 1)) 0 !important;
     }
     .pdf-export-wrapper .md-content pre code {
       background: transparent !important;
       border: none !important;
       padding: 0 !important;
-      font-size: 15px !important;
+      font-size: calc(15px * var(--pdf-scale, 1)) !important;
       color: #0f172a !important;
     }
     .pdf-export-wrapper .md-content blockquote {
-      border-left: 4px solid #2563eb !important;
+      border-left: calc(4px * var(--pdf-scale, 1)) solid #2563eb !important;
       background: #f8fafc !important;
-      padding: 10px 16px !important;
-      margin: 12px 0 !important;
-      font-size: 17px !important;
+      padding: calc(10px * var(--pdf-scale, 1)) calc(16px * var(--pdf-scale, 1)) !important;
+      margin: calc(12px * var(--pdf-scale, 1)) 0 !important;
+      font-size: calc(17px * var(--pdf-scale, 1)) !important;
       color: #475569 !important;
     }
     .pdf-export-wrapper .md-content table {
       width: 100% !important;
       border-collapse: collapse !important;
-      font-size: 16px !important;
-      margin: 14px 0 !important;
+      font-size: calc(16px * var(--pdf-scale, 1)) !important;
+      margin: calc(14px * var(--pdf-scale, 1)) 0 !important;
     }
     .pdf-export-wrapper .md-content th,
     .pdf-export-wrapper .md-content td {
       border: 1px solid #e2e8f0 !important;
-      padding: 8px 10px !important;
+      padding: calc(8px * var(--pdf-scale, 1)) calc(10px * var(--pdf-scale, 1)) !important;
     }
     .pdf-export-wrapper .md-content th {
       background: #f1f5f9 !important;
       font-weight: 700 !important;
     }
     .pdf-export-wrapper .md-content .katex-display {
-      margin: 16px 0 !important;
-      padding: 14px 18px !important;
+      margin: calc(16px * var(--pdf-scale, 1)) 0 !important;
+      padding: calc(14px * var(--pdf-scale, 1)) calc(18px * var(--pdf-scale, 1)) !important;
       background: #f8fafc !important;
       border-radius: 8px !important;
       border: 1px solid #e2e8f0 !important;
@@ -317,7 +337,7 @@ export async function exportElementToPdf(sourceElement, filename, opts = {}) {
     let pageNum = 1;
 
     // ==================================================
-    // LOGO — Graduation cap in blue rounded square
+    // LOGO — Graduation cap in rounded blue square
     // ==================================================
     const drawLogo = (x, y, size) => {
       pdf.setFillColor(99, 102, 241);
@@ -384,8 +404,9 @@ export async function exportElementToPdf(sourceElement, filename, opts = {}) {
 
       drawLogo(logoX, logoY, logoSize);
 
+      // Brand text (scaled)
       pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(9);
+      pdf.setFontSize(9 * Math.min(scale, 1.4));
       pdf.setTextColor(139, 92, 246);
       pdf.text(
         "AI STUDY ASSISTANT",
@@ -393,13 +414,18 @@ export async function exportElementToPdf(sourceElement, filename, opts = {}) {
         logoY + logoSize / 2 + 1.2
       );
 
+      // Title (scaled, but capped so it doesn't overflow)
       const centerX = pageWidth / 2;
       const titleY = logoY + logoSize + 8;
 
       pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(22);
+      pdf.setFontSize(Math.min(22 * scale, 28));
       pdf.setTextColor(15, 23, 42);
-      const shortTitle = title.length > 45 ? title.slice(0, 42) + "..." : title;
+      const maxTitleLen = scale > 1.5 ? 40 : 50;
+      const shortTitle =
+        title.length > maxTitleLen
+          ? title.slice(0, maxTitleLen - 3) + "..."
+          : title;
       const titleW = pdf.getTextWidth(shortTitle);
       pdf.text(shortTitle, centerX - titleW / 2, titleY);
 
@@ -419,7 +445,7 @@ export async function exportElementToPdf(sourceElement, filename, opts = {}) {
       pdf.line(margin, y - 4, pageWidth - margin, y - 4);
 
       pdf.setFont("helvetica", "normal");
-      pdf.setFontSize(9);
+      pdf.setFontSize(9 * Math.min(scale, 1.4));
       pdf.setTextColor(148, 163, 184);
 
       pdf.text("AI Study Assistant", margin, y);
@@ -462,9 +488,9 @@ export async function exportElementToPdf(sourceElement, filename, opts = {}) {
       let finalW = imgW;
       let finalH = imgH;
       if (finalH > usableH) {
-        const scale = usableH / finalH;
+        const s = usableH / finalH;
         finalH = usableH;
-        finalW = imgW * scale;
+        finalW = imgW * s;
       }
 
       const imgData = canvas.toDataURL("image/jpeg", 0.92);
