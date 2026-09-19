@@ -1,33 +1,114 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { updateStudent, deleteStudent, exportStudentData } from "../api/client";
+import {
+  updateStudent,
+  deleteStudent,
+  exportStudentData,
+  getProfileStats,
+} from "../api/client";
 import { useTheme } from "../context/ThemeContext";
 import { useAuth } from "../context/AuthContext";
 import {
-  User as UserIcon, Palette, Download, AlertTriangle, Check,
-  Sun, Moon, Save,
+  User as UserIcon,
+  Palette,
+  Download,
+  AlertTriangle,
+  Check,
+  Sun,
+  Moon,
+  Save,
+  Camera,
+  Trash2,
+  MapPin,
+  Globe,
+  Github,
+  Linkedin,
+  BookOpen,
+  Target,
+  TrendingUp,
+  Sparkles,
+  X,
 } from "lucide-react";
 import "./Settings.css";
 
+const INTEREST_OPTIONS = [
+  "AI", "Machine Learning", "Deep Learning", "Data Science",
+  "Web Development", "Mobile Development", "Game Development",
+  "Cloud", "Cybersecurity", "DevOps", "DSA", "Python",
+  "Java", "JavaScript", "SQL", "Blockchain",
+  "UI/UX Design", "Product Management",
+];
+
+const LEARNING_STYLES = [
+  { value: "", label: "Not set" },
+  { value: "visual", label: "Visual (diagrams, charts)" },
+  { value: "reading", label: "Reading (prose, docs)" },
+  { value: "examples", label: "Examples (worked problems)" },
+  { value: "practice", label: "Practice (hands-on, quizzes)" },
+];
+
+const EDUCATION_LEVELS = [
+  { value: "", label: "Not set" },
+  { value: "highschool", label: "High School" },
+  { value: "undergrad", label: "Undergraduate" },
+  { value: "grad", label: "Graduate" },
+  { value: "self", label: "Self-taught" },
+  { value: "prof", label: "Working Professional" },
+];
+
 export default function Settings() {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const { theme, setTheme } = useTheme();
   const navigate = useNavigate();
+  const fileInputRef = useRef(null);
 
-  const [profile, setProfile] = useState({ name: "", email: "", course: "" });
+  const [profile, setProfile] = useState({
+    name: "",
+    email: "",
+    course: "",
+    bio: "",
+    interests: "",
+    avatar_url: "",
+    preferred_learning_style: "",
+    education_level: "",
+    location: "",
+    website: "",
+    github: "",
+    linkedin: "",
+  });
+  const [stats, setStats] = useState(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [saving, setSaving] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
+  // Load profile from user
   useEffect(() => {
     if (user) {
       setProfile({
         name: user.name || "",
         email: user.email || "",
         course: user.course || "",
+        bio: user.bio || "",
+        interests: user.interests || "",
+        avatar_url: user.avatar_url || "",
+        preferred_learning_style: user.preferred_learning_style || "",
+        education_level: user.education_level || "",
+        location: user.location || "",
+        website: user.website || "",
+        github: user.github || "",
+        linkedin: user.linkedin || "",
       });
     }
   }, [user]);
+
+  // Load stats
+  useEffect(() => {
+    if (!user?.student_id) return;
+    getProfileStats(user.student_id)
+      .then((res) => setStats(res.data))
+      .catch(() => setStats(null));
+  }, [user?.student_id]);
 
   const flash = (msg, isError = false) => {
     if (isError) setError(msg);
@@ -38,30 +119,122 @@ export default function Settings() {
     }, 2500);
   };
 
+  // ==================================================
+  // Avatar upload — resize in-browser, store as base64
+  // ==================================================
+  const handleAvatarChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      flash("Please select an image file.", true);
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      flash("Image too large. Max 5 MB.", true);
+      return;
+    }
+
+    setUploadingAvatar(true);
+    try {
+      const dataUrl = await resizeImage(file, 256);
+      setProfile((p) => ({ ...p, avatar_url: dataUrl }));
+    } catch {
+      flash("Could not process image.", true);
+    } finally {
+      setUploadingAvatar(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const resizeImage = (file, maxSize) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          let w = img.width;
+          let h = img.height;
+          if (w > h) {
+            if (w > maxSize) {
+              h = (h * maxSize) / w;
+              w = maxSize;
+            }
+          } else {
+            if (h > maxSize) {
+              w = (w * maxSize) / h;
+              h = maxSize;
+            }
+          }
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL("image/jpeg", 0.85));
+        };
+        img.onerror = reject;
+        img.src = reader.result;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const removeAvatar = () => {
+    setProfile((p) => ({ ...p, avatar_url: "" }));
+  };
+
+  // ==================================================
+  // Interests — tag toggle
+  // ==================================================
+  const selectedInterests = profile.interests
+    ? profile.interests.split(",").map((s) => s.trim()).filter(Boolean)
+    : [];
+
+  const toggleInterest = (interest) => {
+    const current = new Set(selectedInterests);
+    if (current.has(interest)) current.delete(interest);
+    else current.add(interest);
+    setProfile((p) => ({ ...p, interests: Array.from(current).join(", ") }));
+  };
+
+  // ==================================================
+  // Save
+  // ==================================================
   const handleSaveProfile = async (e) => {
     e.preventDefault();
     if (!user?.student_id) return;
+
     if (!profile.name.trim() || !profile.email.trim() || !profile.course.trim()) {
-      flash("All fields are required.", true);
+      flash("Name, email, and course are required.", true);
       return;
     }
+    if (profile.bio && profile.bio.length > 200) {
+      flash("Bio must be 200 characters or less.", true);
+      return;
+    }
+
     setSaving(true);
     try {
-      await updateStudent(user.student_id, profile);
-      // Update local storage so name/email reflect immediately
+      const res = await updateStudent(user.student_id, profile);
+      // Update localStorage + context so topbar reflects changes
       const stored = JSON.parse(localStorage.getItem("user") || "{}");
       localStorage.setItem(
         "user",
-        JSON.stringify({ ...stored, ...profile })
+        JSON.stringify({ ...stored, ...res.data })
       );
-      flash("Profile updated successfully!");
+      // Full reload to update AuthContext everywhere
+      window.location.reload();
     } catch (err) {
       flash(err.response?.data?.detail || "Failed to save profile", true);
-    } finally {
       setSaving(false);
     }
   };
 
+  // ==================================================
+  // Export / Delete / Reset
+  // ==================================================
   const handleExport = async () => {
     if (!user?.student_id) return;
     try {
@@ -84,7 +257,7 @@ export default function Settings() {
   const handleDeleteAccount = async () => {
     if (!user?.student_id) return;
     const confirmText = window.prompt(
-      `Type DELETE to permanently remove "${profile.name}" and all associated data:`
+      `Type DELETE to permanently remove "${profile.name}" and all data:`
     );
     if (confirmText !== "DELETE") {
       flash("Delete cancelled.", true);
@@ -94,7 +267,7 @@ export default function Settings() {
       await deleteStudent(user.student_id);
       flash("Account deleted. Logging out...");
       setTimeout(() => {
-        logout();
+        localStorage.removeItem("user");
         navigate("/login");
       }, 1500);
     } catch {
@@ -124,10 +297,105 @@ export default function Settings() {
         </div>
       )}
 
-      {/* PROFILE */}
+      {/* ==================================================
+          PROFILE HEADER (avatar + name + stats)
+          ================================================== */}
+      <section className="settings-section profile-hero">
+        <div className="profile-hero-inner">
+          {/* Avatar */}
+          <div className="avatar-wrap">
+            <div className="avatar-large">
+              {profile.avatar_url ? (
+                <img src={profile.avatar_url} alt="Avatar" />
+              ) : (
+                <span className="avatar-initial">
+                  {profile.name?.charAt(0)?.toUpperCase() || "U"}
+                </span>
+              )}
+            </div>
+
+            <div className="avatar-actions">
+              <button
+                type="button"
+                className="avatar-btn"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingAvatar}
+                title="Upload photo"
+              >
+                <Camera size={14} />
+                {uploadingAvatar ? "Uploading..." : "Change photo"}
+              </button>
+
+              {profile.avatar_url && (
+                <button
+                  type="button"
+                  className="avatar-btn avatar-btn-danger"
+                  onClick={removeAvatar}
+                  title="Remove photo"
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
+            </div>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleAvatarChange}
+              style={{ display: "none" }}
+            />
+          </div>
+
+          {/* Name + basic info */}
+          <div className="profile-meta">
+            <h2 className="profile-name">{profile.name || "Your Name"}</h2>
+            <div className="profile-sub">
+              {profile.course && (
+                <span className="profile-course">{profile.course}</span>
+              )}
+              {profile.location && (
+                <>
+                  <span className="profile-dot">·</span>
+                  <span className="profile-location">
+                    <MapPin size={12} /> {profile.location}
+                  </span>
+                </>
+              )}
+            </div>
+            {profile.bio && (
+              <p className="profile-bio">{profile.bio}</p>
+            )}
+          </div>
+        </div>
+
+        {/* Stats */}
+        {stats && (
+          <div className="profile-stats">
+            <div className="pstat">
+              <div className="pstat-value">{stats.topics_explored}</div>
+              <div className="pstat-label">Topics Explored</div>
+            </div>
+            <div className="pstat">
+              <div className="pstat-value">{stats.concepts_tested}</div>
+              <div className="pstat-label">Concepts Tested</div>
+            </div>
+            <div className="pstat">
+              <div className="pstat-value">{stats.tests_taken}</div>
+              <div className="pstat-label">Tests Taken</div>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* ==================================================
+          EDIT PROFILE
+          ================================================== */}
       <section className="settings-section">
         <div className="section-head">
-          <div className="section-icon icon-blue"><UserIcon size={18} /></div>
+          <div className="section-icon icon-blue">
+            <UserIcon size={18} />
+          </div>
           <div>
             <h2 className="section-title">Profile</h2>
             <p className="section-desc">Your personal information.</p>
@@ -137,11 +405,14 @@ export default function Settings() {
         <form className="settings-form" onSubmit={handleSaveProfile}>
           <div className="form-row">
             <label>
-              <span>Name</span>
+              <span>Full Name</span>
               <input
                 type="text"
                 value={profile.name}
-                onChange={(e) => setProfile({ ...profile, name: e.target.value })}
+                onChange={(e) =>
+                  setProfile({ ...profile, name: e.target.value })
+                }
+                placeholder="Jane Doe"
               />
             </label>
             <label>
@@ -149,28 +420,179 @@ export default function Settings() {
               <input
                 type="email"
                 value={profile.email}
-                onChange={(e) => setProfile({ ...profile, email: e.target.value })}
+                onChange={(e) =>
+                  setProfile({ ...profile, email: e.target.value })
+                }
+                placeholder="jane@example.com"
               />
             </label>
           </div>
+
+          <div className="form-row">
+            <label>
+              <span>Course / Field</span>
+              <input
+                type="text"
+                value={profile.course}
+                onChange={(e) =>
+                  setProfile({ ...profile, course: e.target.value })
+                }
+                placeholder="B.Tech CSE / Self-taught"
+              />
+            </label>
+            <label>
+              <span>Location</span>
+              <input
+                type="text"
+                value={profile.location}
+                onChange={(e) =>
+                  setProfile({ ...profile, location: e.target.value })
+                }
+                placeholder="Mumbai, India"
+              />
+            </label>
+          </div>
+
           <label>
-            <span>Course</span>
-            <input
-              type="text"
-              value={profile.course}
-              onChange={(e) => setProfile({ ...profile, course: e.target.value })}
+            <span>
+              Bio{" "}
+              <span className="field-hint">
+                ({profile.bio.length}/200 characters)
+              </span>
+            </span>
+            <textarea
+              value={profile.bio}
+              onChange={(e) =>
+                setProfile({ ...profile, bio: e.target.value.slice(0, 200) })
+              }
+              rows={3}
+              placeholder="A short bio about yourself — what you're learning, why, and what you hope to build."
             />
           </label>
+
+          <div className="form-row">
+            <label>
+              <span>Learning Style</span>
+              <select
+                value={profile.preferred_learning_style}
+                onChange={(e) =>
+                  setProfile({
+                    ...profile,
+                    preferred_learning_style: e.target.value,
+                  })
+                }
+              >
+                {LEARNING_STYLES.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Education Level</span>
+              <select
+                value={profile.education_level}
+                onChange={(e) =>
+                  setProfile({
+                    ...profile,
+                    education_level: e.target.value,
+                  })
+                }
+              >
+                {EDUCATION_LEVELS.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          {/* Interests */}
+          <div className="interests-block">
+            <span className="interests-label">
+              Interests{" "}
+              <span className="field-hint">
+                ({selectedInterests.length} selected)
+              </span>
+            </span>
+            <div className="interests-grid">
+              {INTEREST_OPTIONS.map((interest) => {
+                const active = selectedInterests.includes(interest);
+                return (
+                  <button
+                    key={interest}
+                    type="button"
+                    className={`interest-chip ${active ? "active" : ""}`}
+                    onClick={() => toggleInterest(interest)}
+                  >
+                    {active && <Check size={12} />}
+                    {interest}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Social links */}
+          <div className="form-row">
+            <label>
+              <span>
+                <Globe size={12} /> Website
+              </span>
+              <input
+                type="url"
+                value={profile.website}
+                onChange={(e) =>
+                  setProfile({ ...profile, website: e.target.value })
+                }
+                placeholder="https://yourwebsite.com"
+              />
+            </label>
+            <label>
+              <span>
+                <Github size={12} /> GitHub
+              </span>
+              <input
+                type="text"
+                value={profile.github}
+                onChange={(e) =>
+                  setProfile({ ...profile, github: e.target.value })
+                }
+                placeholder="username"
+              />
+            </label>
+          </div>
+
+          <label>
+            <span>
+              <Linkedin size={12} /> LinkedIn
+            </span>
+            <input
+              type="text"
+              value={profile.linkedin}
+              onChange={(e) =>
+                setProfile({ ...profile, linkedin: e.target.value })
+              }
+              placeholder="linkedin.com/in/username"
+            />
+          </label>
+
           <button type="submit" className="btn-save" disabled={saving}>
             <Save size={15} /> {saving ? "Saving..." : "Save Profile"}
           </button>
         </form>
       </section>
 
-      {/* APPEARANCE */}
+      {/* ==================================================
+          APPEARANCE
+          ================================================== */}
       <section className="settings-section">
         <div className="section-head">
-          <div className="section-icon icon-purple"><Palette size={18} /></div>
+          <div className="section-icon icon-purple">
+            <Palette size={18} />
+          </div>
           <div>
             <h2 className="section-title">Appearance</h2>
             <p className="section-desc">Choose how the app looks.</p>
@@ -178,40 +600,56 @@ export default function Settings() {
         </div>
         <div className="theme-options">
           <button
+            type="button"
             className={`theme-option ${theme === "light" ? "active" : ""}`}
             onClick={() => setTheme("light")}
           >
-            <Sun size={18} /><span>Light</span>
+            <Sun size={18} />
+            <span>Light</span>
           </button>
           <button
+            type="button"
             className={`theme-option ${theme === "dark" ? "active" : ""}`}
             onClick={() => setTheme("dark")}
           >
-            <Moon size={18} /><span>Dark</span>
+            <Moon size={18} />
+            <span>Dark</span>
           </button>
         </div>
       </section>
 
-      {/* DATA */}
+      {/* ==================================================
+          DATA
+          ================================================== */}
       <section className="settings-section">
         <div className="section-head">
-          <div className="section-icon icon-blue"><Download size={18} /></div>
+          <div className="section-icon icon-blue">
+            <Download size={18} />
+          </div>
           <div>
             <h2 className="section-title">Data & Privacy</h2>
             <p className="section-desc">Your data, your control.</p>
           </div>
         </div>
         <div className="data-actions">
-          <button className="btn-secondary" onClick={handleExport}>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={handleExport}
+          >
             <Download size={15} /> Export All Data (JSON)
           </button>
         </div>
       </section>
 
-      {/* DANGER */}
+      {/* ==================================================
+          DANGER ZONE
+          ================================================== */}
       <section className="settings-section danger-zone">
         <div className="section-head">
-          <div className="section-icon icon-red"><AlertTriangle size={18} /></div>
+          <div className="section-icon icon-red">
+            <AlertTriangle size={18} />
+          </div>
           <div>
             <h2 className="section-title">Danger Zone</h2>
             <p className="section-desc">
@@ -220,7 +658,11 @@ export default function Settings() {
             </p>
           </div>
         </div>
-        <button className="btn-danger" onClick={handleDeleteAccount}>
+        <button
+          type="button"
+          className="btn-danger"
+          onClick={handleDeleteAccount}
+        >
           Delete Account & All Data
         </button>
       </section>

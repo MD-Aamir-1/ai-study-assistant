@@ -9,7 +9,6 @@ from database import engine, Base, SessionLocal
 import models
 import schemas
 
-# Create all tables
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="AI Study Assistant")
@@ -29,7 +28,6 @@ app.add_middleware(
 )
 
 
-# ---------- DB Dependency ----------
 def get_db():
     db = SessionLocal()
     try:
@@ -47,7 +45,7 @@ def home():
 
 
 # ==================================================
-# AUTH — Login / Find-or-Create Student
+# AUTH
 # ==================================================
 class LoginRequest(BaseModel):
     email: str
@@ -61,11 +59,7 @@ def login_or_register(payload: LoginRequest, db: Session = Depends(get_db)):
     if not email:
         raise HTTPException(status_code=400, detail="Email is required")
 
-    student = (
-        db.query(models.Student)
-        .filter(models.Student.email == email)
-        .first()
-    )
+    student = db.query(models.Student).filter(models.Student.email == email).first()
 
     created = False
     if not student:
@@ -82,6 +76,15 @@ def login_or_register(payload: LoginRequest, db: Session = Depends(get_db)):
         "name": student.name,
         "email": student.email,
         "course": student.course,
+        "bio": student.bio or "",
+        "interests": student.interests or "",
+        "avatar_url": student.avatar_url or "",
+        "preferred_learning_style": student.preferred_learning_style or "",
+        "education_level": student.education_level or "",
+        "location": student.location or "",
+        "website": student.website or "",
+        "github": student.github or "",
+        "linkedin": student.linkedin or "",
         "created": created,
     }
 
@@ -106,40 +109,84 @@ def get_all_students(db: Session = Depends(get_db)):
     return db.query(models.Student).all()
 
 
-@app.get("/students/{student_id}", response_model=schemas.StudentResponse)
+@app.get("/students/{student_id}")
 def get_student(student_id: int, db: Session = Depends(get_db)):
     student = db.query(models.Student).filter(models.Student.id == student_id).first()
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
-    return student
+    return {
+        "id": student.id,
+        "name": student.name,
+        "email": student.email,
+        "course": student.course,
+        "bio": student.bio or "",
+        "interests": student.interests or "",
+        "avatar_url": student.avatar_url or "",
+        "preferred_learning_style": student.preferred_learning_style or "",
+        "education_level": student.education_level or "",
+        "location": student.location or "",
+        "website": student.website or "",
+        "github": student.github or "",
+        "linkedin": student.linkedin or "",
+    }
 
 
 class StudentUpdate(BaseModel):
     name: Optional[str] = None
     email: Optional[str] = None
     course: Optional[str] = None
+    bio: Optional[str] = None
+    interests: Optional[str] = None
+    avatar_url: Optional[str] = None
+    preferred_learning_style: Optional[str] = None
+    education_level: Optional[str] = None
+    location: Optional[str] = None
+    website: Optional[str] = None
+    github: Optional[str] = None
+    linkedin: Optional[str] = None
 
 
-@app.put("/students/{student_id}", response_model=schemas.StudentResponse)
+@app.put("/students/{student_id}")
 def update_student(student_id: int, updates: StudentUpdate, db: Session = Depends(get_db)):
     student = db.query(models.Student).filter(models.Student.id == student_id).first()
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
 
+    # Email requires uniqueness check
     if updates.email and updates.email != student.email:
         existing = db.query(models.Student).filter(models.Student.email == updates.email).first()
         if existing:
             raise HTTPException(status_code=400, detail="Email already in use")
         student.email = updates.email
 
-    if updates.name:
-        student.name = updates.name
-    if updates.course:
-        student.course = updates.course
+    # All other string fields
+    for field in [
+        "name", "course", "bio", "interests", "avatar_url",
+        "preferred_learning_style", "education_level",
+        "location", "website", "github", "linkedin",
+    ]:
+        value = getattr(updates, field, None)
+        if value is not None:
+            setattr(student, field, value)
 
     db.commit()
     db.refresh(student)
-    return student
+
+    return {
+        "id": student.id,
+        "name": student.name,
+        "email": student.email,
+        "course": student.course,
+        "bio": student.bio or "",
+        "interests": student.interests or "",
+        "avatar_url": student.avatar_url or "",
+        "preferred_learning_style": student.preferred_learning_style or "",
+        "education_level": student.education_level or "",
+        "location": student.location or "",
+        "website": student.website or "",
+        "github": student.github or "",
+        "linkedin": student.linkedin or "",
+    }
 
 
 @app.delete("/students/{student_id}")
@@ -158,6 +205,7 @@ def delete_student(student_id: int, db: Session = Depends(get_db)):
     db.query(models.QuestionAttempt).filter(models.QuestionAttempt.student_id == student_id).delete()
     db.query(models.ConceptStat).filter(models.ConceptStat.student_id == student_id).delete()
     db.query(models.Recommendation).filter(models.Recommendation.student_id == student_id).delete()
+    db.query(models.SearchHistory).filter(models.SearchHistory.student_id == student_id).delete()
 
     db.delete(student)
     db.commit()
@@ -181,13 +229,85 @@ def export_student_data(student_id: int, db: Session = Depends(get_db)):
     quizzes = db.query(models.QuizResult).filter(models.QuizResult.student_id == student_id).all()
 
     return {
-        "student": {"id": student.id, "name": student.name, "email": student.email, "course": student.course},
+        "student": {
+            "id": student.id,
+            "name": student.name,
+            "email": student.email,
+            "course": student.course,
+            "bio": student.bio or "",
+            "interests": student.interests or "",
+            "location": student.location or "",
+            "education_level": student.education_level or "",
+        },
         "subjects": [{"id": s.id, "name": s.name} for s in subjects],
-        "topics": [{"id": t.id, "name": t.name, "difficulty": t.difficulty, "subject_id": t.subject_id} for t in topics],
-        "performances": [{"topic_id": p.topic_id, "score": p.score, "attempts": p.attempts} for p in performances],
-        "study_plans": [{"topic_id": p.topic_id, "date": p.date, "duration_minutes": p.duration_minutes, "completed": p.completed} for p in plans],
-        "quiz_results": [{"topic_id": q.topic_id, "score": q.score, "total_questions": q.total_questions, "date": q.date} for q in quizzes],
+        "topics": [
+            {"id": t.id, "name": t.name, "difficulty": t.difficulty, "subject_id": t.subject_id}
+            for t in topics
+        ],
+        "performances": [
+            {"topic_id": p.topic_id, "score": p.score, "attempts": p.attempts}
+            for p in performances
+        ],
+        "study_plans": [
+            {
+                "topic_id": p.topic_id,
+                "date": p.date,
+                "duration_minutes": p.duration_minutes,
+                "completed": p.completed,
+            }
+            for p in plans
+        ],
+        "quiz_results": [
+            {
+                "topic_id": q.topic_id,
+                "score": q.score,
+                "total_questions": q.total_questions,
+                "date": q.date,
+            }
+            for q in quizzes
+        ],
         "exported_at": str(date_cls.today()),
+    }
+
+
+@app.get("/students/{student_id}/profile-stats")
+def get_profile_stats(student_id: int, db: Session = Depends(get_db)):
+    student = db.query(models.Student).filter(models.Student.id == student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    concepts_tested = (
+        db.query(models.ConceptStat)
+        .filter(models.ConceptStat.student_id == student_id)
+        .count()
+    )
+
+    attempts = (
+        db.query(models.QuestionAttempt.session_id)
+        .filter(models.QuestionAttempt.student_id == student_id)
+        .all()
+    )
+    tests_taken = len({a[0] for a in attempts if a[0]})
+
+    topics_explored = (
+        db.query(models.Topic)
+        .join(models.Subject, models.Topic.subject_id == models.Subject.id)
+        .filter(models.Subject.student_id == student_id)
+        .count()
+    )
+
+    joined_at = (
+        db.query(models.QuestionAttempt.attempted_at)
+        .filter(models.QuestionAttempt.student_id == student_id)
+        .order_by(models.QuestionAttempt.attempted_at.asc())
+        .first()
+    )
+
+    return {
+        "concepts_tested": concepts_tested,
+        "tests_taken": tests_taken,
+        "topics_explored": topics_explored,
+        "member_since": joined_at[0].isoformat() if joined_at and joined_at[0] else None,
     }
 
 
@@ -346,7 +466,7 @@ def complete_study_plan(plan_id: int, db: Session = Depends(get_db)):
 
 
 # ==================================================
-# QUIZ QUESTIONS (legacy)
+# LEGACY QUIZ
 # ==================================================
 @app.post("/quiz/questions", response_model=schemas.QuizQuestionResponse)
 def create_quiz_question(q: schemas.QuizQuestionCreate, db: Session = Depends(get_db)):
@@ -379,9 +499,6 @@ def bulk_create_questions(payload: QuizQuestionBulk, db: Session = Depends(get_d
     return {"created": len(created), "question_ids": [q.id for q in created]}
 
 
-# ==================================================
-# QUIZ RESULTS
-# ==================================================
 @app.post("/quiz/results", response_model=schemas.QuizResultResponse)
 def create_quiz_result(r: schemas.QuizResultCreate, db: Session = Depends(get_db)):
     new_r = models.QuizResult(**r.dict())
@@ -628,10 +745,7 @@ def search_or_create_topic(payload: TopicSearchRequest, db: Session = Depends(ge
     if not name:
         raise HTTPException(status_code=400, detail="Topic name cannot be empty")
 
-    # ---------- Strip common user-added suffixes ----------
-    # "Data Science Tutorial" → "Data Science"
-    # "Python Guide" → "Python"
-    # Keeps the topic name clean so section titles read naturally.
+    # Strip common suffixes
     SUFFIXES = [
         " full course", " complete guide", " tutorial",
         " course", " guide", " notes",
@@ -679,9 +793,8 @@ def search_or_create_topic(payload: TopicSearchRequest, db: Session = Depends(ge
         db.refresh(topic)
         created = True
 
-    # ---------- Record in search history ----------
+    # Record in search history
     try:
-        # Delete any older entry for the same topic (keeps the latest one)
         db.query(models.SearchHistory).filter(
             models.SearchHistory.student_id == payload.student_id,
             models.SearchHistory.topic_id == topic.id,
@@ -695,7 +808,6 @@ def search_or_create_topic(payload: TopicSearchRequest, db: Session = Depends(ge
         db.add(history_entry)
         db.commit()
     except Exception as e:
-        # History failure must not break search
         print(f"[search-or-create] History save failed: {e}")
         db.rollback()
 
@@ -989,7 +1101,70 @@ def complete_rec(rec_id: int, student_id: int, db: Session = Depends(get_db)):
 
 
 # ==================================================
-# FILE UPLOAD + TEXT EXTRACTION + LEARN FROM TEXT
+# SEARCH HISTORY
+# ==================================================
+@app.get("/students/{student_id}/search-history")
+def get_search_history(student_id: int, limit: int = 20, db: Session = Depends(get_db)):
+    student = db.query(models.Student).filter(models.Student.id == student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    rows = (
+        db.query(models.SearchHistory)
+        .filter(models.SearchHistory.student_id == student_id)
+        .order_by(models.SearchHistory.searched_at.desc())
+        .limit(max(1, min(limit, 50)))
+        .all()
+    )
+
+    result = []
+    for row in rows:
+        topic = db.query(models.Topic).filter(models.Topic.id == row.topic_id).first()
+        subject = None
+        if topic:
+            subject = db.query(models.Subject).filter(models.Subject.id == topic.subject_id).first()
+
+        result.append({
+            "id": row.id,
+            "topic_id": row.topic_id,
+            "topic_name": topic.name if topic else row.query,
+            "subject_name": subject.name if subject else "Explored Topics",
+            "searched_at": row.searched_at.isoformat() if row.searched_at else None,
+        })
+
+    return {"student_id": student_id, "total": len(result), "history": result}
+
+
+@app.delete("/search-history/{entry_id}")
+def delete_search_history_entry(entry_id: int, student_id: int, db: Session = Depends(get_db)):
+    row = (
+        db.query(models.SearchHistory)
+        .filter(
+            models.SearchHistory.id == entry_id,
+            models.SearchHistory.student_id == student_id,
+        )
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="History entry not found")
+    db.delete(row)
+    db.commit()
+    return {"message": "Deleted", "id": entry_id}
+
+
+@app.delete("/students/{student_id}/search-history")
+def clear_search_history(student_id: int, db: Session = Depends(get_db)):
+    deleted = (
+        db.query(models.SearchHistory)
+        .filter(models.SearchHistory.student_id == student_id)
+        .delete()
+    )
+    db.commit()
+    return {"message": "History cleared", "deleted": deleted}
+
+
+# ==================================================
+# FILE UPLOAD + LEARN
 # ==================================================
 from services.file_service import extract_text
 from ai_tutor import get_client
@@ -1000,7 +1175,6 @@ async def extract_file_content(file: UploadFile = File(...)):
     contents = await file.read()
     if len(contents) > 10 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="File too large. Max 10 MB.")
-
     if not contents:
         raise HTTPException(status_code=400, detail="Empty file.")
 
@@ -1025,51 +1199,49 @@ async def extract_file_content(file: UploadFile = File(...)):
 
 LEARN_SYSTEM_PROMPT = """You are a senior educator who writes comprehensive, GFG-quality educational content.
 
-The user has provided text extracted from a document (PDF, image, or text file) along with an instruction.
-
 CORE PRINCIPLES:
-1. NEVER REFUSE. Always produce substantive, helpful educational content — even if the reference text is extremely short.
-2. Treat the uploaded text as REFERENCE MATERIAL, not as your only allowed knowledge. You are a teacher, not a fact-checker.
+1. NEVER REFUSE. Always produce substantive, helpful educational content.
+2. Treat the uploaded text as REFERENCE MATERIAL, not as your only allowed knowledge.
 3. If the reference is detailed, ground your explanations in it.
-4. If the reference is sparse, use your general knowledge to write a full tutorial on the topic it mentions.
-5. If the reference contains a specific question, answer it thoroughly with reasoning.
+4. If the reference is sparse, use your general knowledge.
+5. If the reference contains a question, answer it thoroughly with reasoning.
 
 DEPTH REQUIREMENTS:
 - Write 2000-4000 words of RICH, well-structured markdown
-- Every section must have multiple paragraphs
-- Include at least 2 concrete examples with real numbers where applicable
-- Include at least 1 comparison table where relevant
-- Include code snippets if the topic involves programming
-- Include formulas (using $$...$$ on their own line) where relevant
+- Multiple paragraphs per section
+- At least 2 concrete examples with real numbers
+- At least 1 comparison table
+- Code snippets if programming-related
+- Formulas using $$...$$ on their own line
 - Explain WHY, not just WHAT
 
 STRUCTURE:
 # <Topic Title>
 <2-3 sentence intro>
-## What Is It? (3-4 paragraphs)
-## Why Does It Matter? (3-4 paragraphs)
-## Core Concepts / How It Works (with ### sub-headings)
+## What Is It?
+## Why Does It Matter?
+## Core Concepts / How It Works
 ## Types / Variants (if applicable)
-## Real-World Examples (3-4 examples as ### subsections)
-## Worked Example (specific, with numbers, step-by-step)
-## Advantages (detailed list with explanations)
-## Disadvantages / Limitations (detailed list)
-## Common Mistakes (detailed list)
-## Comparison with Alternatives (table if relevant)
-## Key Takeaways (5-8 numbered points)
-## Practice / Further Study (3-5 problems or next topics)
+## Real-World Examples
+## Worked Example
+## Advantages
+## Disadvantages
+## Common Mistakes
+## Comparison with Alternatives
+## Key Takeaways
+## Practice / Further Study
 
 FORMATTING:
-- Use markdown headings (##, ###)
-- Use **bold** for key terms
-- Use `code` for identifiers and short inline formulas
-- Use $$...$$ for display math — ALWAYS on its own line, never inline
-- Use - or 1. for lists
-- Use tables when comparing things
+- Markdown headings (##, ###)
+- **bold** for key terms
+- `code` for identifiers
+- $$...$$ for display math
+- - or 1. for lists
+- Tables when comparing
 
 Never say "the source doesn't provide enough information". Instead, teach what you know.
 
-End with one short follow-up question to check the learner's understanding.
+End with one short follow-up question.
 """
 
 
@@ -1086,7 +1258,6 @@ def learn_from_text(req: LearnFromTextRequest):
 
     if not instruction:
         raise HTTPException(status_code=400, detail="No instruction provided.")
-
     if not text:
         text = "(The uploaded file contained no readable text. Use the instruction as the topic.)"
 
@@ -1097,11 +1268,9 @@ def learn_from_text(req: LearnFromTextRequest):
         truncated = True
 
     user_message = (
-        f"REFERENCE TEXT FROM UPLOADED FILE:\n"
-        f"\"\"\"\n{text}\n\"\"\"\n\n"
+        f"REFERENCE TEXT FROM UPLOADED FILE:\n\"\"\"\n{text}\n\"\"\"\n\n"
         f"USER'S INSTRUCTION: {instruction}\n\n"
-        f"Remember: write a COMPREHENSIVE, GFG-QUALITY response of 2000-4000 words. "
-        f"Do not refuse. Use your general knowledge to expand beyond the reference if the reference is sparse."
+        f"Write a COMPREHENSIVE, GFG-QUALITY response of 2000-4000 words."
     )
 
     try:
@@ -1128,7 +1297,7 @@ def learn_from_text(req: LearnFromTextRequest):
 
 
 # ==================================================
-# FAST NOTIFICATIONS (no ML, no LLM — DB only)
+# FAST NOTIFICATIONS
 # ==================================================
 @app.get("/notifications/{student_id}")
 def get_notifications(student_id: int, db: Session = Depends(get_db)):
@@ -1138,7 +1307,7 @@ def get_notifications(student_id: int, db: Session = Depends(get_db)):
 
     notifications = []
 
-    # 1. Weak concepts (score < 50, attempts >= 1)
+    # Weak concepts
     stats = (
         db.query(models.ConceptStat)
         .filter(
@@ -1150,7 +1319,6 @@ def get_notifications(student_id: int, db: Session = Depends(get_db)):
         .limit(3)
         .all()
     )
-
     for s in stats:
         concept = db.query(models.Concept).filter(models.Concept.id == s.concept_id).first()
         if not concept:
@@ -1168,7 +1336,7 @@ def get_notifications(student_id: int, db: Session = Depends(get_db)):
             "priority": 100 - s.score,
         })
 
-    # 2. Pending recommendations (high priority)
+    # Recommendations
     recs = (
         db.query(models.Recommendation)
         .filter(
@@ -1180,7 +1348,6 @@ def get_notifications(student_id: int, db: Session = Depends(get_db)):
         .limit(3)
         .all()
     )
-
     for r in recs:
         concept = db.query(models.Concept).filter(models.Concept.id == r.concept_id).first()
         if not concept:
@@ -1198,7 +1365,7 @@ def get_notifications(student_id: int, db: Session = Depends(get_db)):
             "priority": r.priority,
         })
 
-    # 3. Streak
+    # Streak
     attempts = (
         db.query(models.QuestionAttempt.attempted_at)
         .filter(models.QuestionAttempt.student_id == student_id)
@@ -1239,7 +1406,6 @@ def get_notifications(student_id: int, db: Session = Depends(get_db)):
             "priority": 40,
         })
 
-    # 4. Welcome
     if not notifications:
         notifications.append({
             "id": "welcome",
@@ -1259,68 +1425,3 @@ def get_notifications(student_id: int, db: Session = Depends(get_db)):
         "total": len(notifications),
         "notifications": notifications,
     }
-# ==================================================
-# SEARCH HISTORY
-# ==================================================
-@app.get("/students/{student_id}/search-history")
-def get_search_history(student_id: int, limit: int = 20, db: Session = Depends(get_db)):
-    student = db.query(models.Student).filter(models.Student.id == student_id).first()
-    if not student:
-        raise HTTPException(status_code=404, detail="Student not found")
-
-    rows = (
-        db.query(models.SearchHistory)
-        .filter(models.SearchHistory.student_id == student_id)
-        .order_by(models.SearchHistory.searched_at.desc())
-        .limit(max(1, min(limit, 50)))
-        .all()
-    )
-
-    result = []
-    for row in rows:
-        topic = db.query(models.Topic).filter(models.Topic.id == row.topic_id).first()
-        subject = None
-        if topic:
-            subject = db.query(models.Subject).filter(models.Subject.id == topic.subject_id).first()
-
-        result.append({
-            "id": row.id,
-            "topic_id": row.topic_id,
-            "topic_name": topic.name if topic else row.query,
-            "subject_name": subject.name if subject else "Explored Topics",
-            "searched_at": row.searched_at.isoformat() if row.searched_at else None,
-        })
-
-    return {
-        "student_id": student_id,
-        "total": len(result),
-        "history": result,
-    }
-
-
-@app.delete("/search-history/{entry_id}")
-def delete_search_history_entry(entry_id: int, student_id: int, db: Session = Depends(get_db)):
-    row = (
-        db.query(models.SearchHistory)
-        .filter(
-            models.SearchHistory.id == entry_id,
-            models.SearchHistory.student_id == student_id,
-        )
-        .first()
-    )
-    if not row:
-        raise HTTPException(status_code=404, detail="History entry not found")
-    db.delete(row)
-    db.commit()
-    return {"message": "Deleted", "id": entry_id}
-
-
-@app.delete("/students/{student_id}/search-history")
-def clear_search_history(student_id: int, db: Session = Depends(get_db)):
-    deleted = (
-        db.query(models.SearchHistory)
-        .filter(models.SearchHistory.student_id == student_id)
-        .delete()
-    )
-    db.commit()
-    return {"message": "History cleared", "deleted": deleted}

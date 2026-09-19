@@ -99,5 +99,7 @@ export const deleteHistoryEntry = (entryId, studentId) =>
 
 export const clearHistory = (studentId) =>
   API.delete(`/students/${studentId}/search-history`);
+export const getProfileStats = (studentId) =>
+  API.get(`/students/${studentId}/profile-stats`);
 
 export default API;

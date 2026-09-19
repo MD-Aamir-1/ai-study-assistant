@@ -7,9 +7,8 @@ from database import Base
 
 
 # ==================================================
-# EXISTING MODELS
+# STUDENT (extended profile)
 # ==================================================
-
 class Student(Base):
     __tablename__ = "students"
     id = Column(Integer, primary_key=True, index=True)
@@ -17,15 +16,36 @@ class Student(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     course = Column(String, nullable=False)
 
-    subjects = relationship("Subject", back_populates="student", cascade="all, delete-orphan")
+    # Extended profile fields
+    bio = Column(Text, default="")
+    interests = Column(Text, default="")
+    avatar_url = Column(Text, default="")
+    preferred_learning_style = Column(String, default="")
+    education_level = Column(String, default="")
+    location = Column(String, default="")
+    website = Column(String, default="")
+    github = Column(String, default="")
+    linkedin = Column(String, default="")
+
+    subjects = relationship(
+        "Subject", back_populates="student", cascade="all, delete-orphan"
+    )
     performances = relationship("Performance", back_populates="student")
     study_plans = relationship("StudyPlan", back_populates="student")
     quiz_results = relationship("QuizResult", back_populates="student")
     question_attempts = relationship("QuestionAttempt", back_populates="student")
     concept_stats = relationship("ConceptStat", back_populates="student")
     recommendations = relationship("Recommendation", back_populates="student")
-    search_history = relationship("SearchHistory", cascade="all, delete-orphan", order_by="desc(SearchHistory.searched_at)")
+    search_history = relationship(
+        "SearchHistory",
+        cascade="all, delete-orphan",
+        order_by="desc(SearchHistory.searched_at)",
+    )
 
+
+# ==================================================
+# SUBJECT
+# ==================================================
 class Subject(Base):
     __tablename__ = "subjects"
     id = Column(Integer, primary_key=True, index=True)
@@ -33,9 +53,14 @@ class Subject(Base):
     student_id = Column(Integer, ForeignKey("students.id"), nullable=False)
 
     student = relationship("Student", back_populates="subjects")
-    topics = relationship("Topic", back_populates="subject", cascade="all, delete-orphan")
+    topics = relationship(
+        "Topic", back_populates="subject", cascade="all, delete-orphan"
+    )
 
 
+# ==================================================
+# TOPIC
+# ==================================================
 class Topic(Base):
     __tablename__ = "topics"
     id = Column(Integer, primary_key=True, index=True)
@@ -49,14 +74,23 @@ class Topic(Base):
     quiz_questions = relationship("QuizQuestion", back_populates="topic")
     quiz_results = relationship("QuizResult", back_populates="topic")
 
-    # Concept-level relationships
-    concepts = relationship("Concept", back_populates="topic", cascade="all, delete-orphan")
-    learning_content = relationship(
-        "LearningContent", back_populates="topic", uselist=False, cascade="all, delete-orphan"
+    concepts = relationship(
+        "Concept", back_populates="topic", cascade="all, delete-orphan"
     )
-    questions = relationship("Question", back_populates="topic", cascade="all, delete-orphan")
+    learning_content = relationship(
+        "LearningContent",
+        back_populates="topic",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    questions = relationship(
+        "Question", back_populates="topic", cascade="all, delete-orphan"
+    )
 
 
+# ==================================================
+# PERFORMANCE (legacy topic-level)
+# ==================================================
 class Performance(Base):
     __tablename__ = "performances"
     id = Column(Integer, primary_key=True, index=True)
@@ -69,6 +103,9 @@ class Performance(Base):
     topic = relationship("Topic", back_populates="performances")
 
 
+# ==================================================
+# STUDY PLAN (legacy)
+# ==================================================
 class StudyPlan(Base):
     __tablename__ = "study_plans"
     id = Column(Integer, primary_key=True, index=True)
@@ -82,8 +119,10 @@ class StudyPlan(Base):
     topic = relationship("Topic", back_populates="study_plans")
 
 
+# ==================================================
+# QUIZ QUESTION (legacy)
+# ==================================================
 class QuizQuestion(Base):
-    """Legacy table — kept for backward compatibility. New questions use `Question`."""
     __tablename__ = "quiz_questions"
     id = Column(Integer, primary_key=True, index=True)
     topic_id = Column(Integer, ForeignKey("topics.id"), nullable=False)
@@ -97,6 +136,9 @@ class QuizQuestion(Base):
     topic = relationship("Topic", back_populates="quiz_questions")
 
 
+# ==================================================
+# QUIZ RESULT
+# ==================================================
 class QuizResult(Base):
     __tablename__ = "quiz_results"
     id = Column(Integer, primary_key=True, index=True)
@@ -111,18 +153,16 @@ class QuizResult(Base):
 
 
 # ==================================================
-# CONCEPT-LEVEL MODELS
+# CONCEPT
 # ==================================================
-
 class Concept(Base):
-    """A single concept within a topic. E.g., 'Kernel Functions' inside 'SVM'."""
     __tablename__ = "concepts"
     id = Column(Integer, primary_key=True, index=True)
     topic_id = Column(Integer, ForeignKey("topics.id"), nullable=False, index=True)
     name = Column(String, nullable=False)
     description = Column(Text, default="")
-    importance = Column(Integer, default=3)   # 1=low, 5=critical
-    order_index = Column(Integer, default=0)  # display order
+    importance = Column(Integer, default=3)
+    order_index = Column(Integer, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     topic = relationship("Topic", back_populates="concepts")
@@ -136,20 +176,24 @@ class Concept(Base):
         "Recommendation", back_populates="concept", cascade="all, delete-orphan"
     )
     content = relationship(
-        "ConceptContent", back_populates="concept", uselist=False,
-        cascade="all, delete-orphan"
+        "ConceptContent",
+        back_populates="concept",
+        uselist=False,
+        cascade="all, delete-orphan",
     )
 
 
+# ==================================================
+# LEARNING CONTENT
+# ==================================================
 class LearningContent(Base):
-    """Cached, structured content for a topic. One row per topic (unique)."""
     __tablename__ = "learning_contents"
     id = Column(Integer, primary_key=True, index=True)
     topic_id = Column(
         Integer, ForeignKey("topics.id"), nullable=False, unique=True, index=True
     )
-    content_json = Column(Text, nullable=False)  # JSON-encoded structured content
-    sources = Column(Text, default="[]")         # JSON list of source dicts
+    content_json = Column(Text, nullable=False)
+    sources = Column(Text, default="[]")
     model_version = Column(String, default="")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(
@@ -159,8 +203,10 @@ class LearningContent(Base):
     topic = relationship("Topic", back_populates="learning_content")
 
 
+# ==================================================
+# CONCEPT CONTENT (deep-dive)
+# ==================================================
 class ConceptContent(Base):
-    """Cached deep-dive content for a single concept."""
     __tablename__ = "concept_contents"
     id = Column(Integer, primary_key=True, index=True)
     concept_id = Column(
@@ -176,8 +222,10 @@ class ConceptContent(Base):
     concept = relationship("Concept", back_populates="content")
 
 
+# ==================================================
+# QUESTION (concept-aware)
+# ==================================================
 class Question(Base):
-    """Concept-aware question (new system)."""
     __tablename__ = "questions"
     id = Column(Integer, primary_key=True, index=True)
     topic_id = Column(Integer, ForeignKey("topics.id"), nullable=False, index=True)
@@ -186,7 +234,7 @@ class Question(Base):
     option_b = Column(Text, nullable=False)
     option_c = Column(Text, nullable=False)
     option_d = Column(Text, nullable=False)
-    correct_option = Column(String(1), nullable=False)  # "A"|"B"|"C"|"D"
+    correct_option = Column(String(1), nullable=False)
     explanation = Column(Text, default="")
     difficulty = Column(String, default="medium")
     question_type = Column(String, default="conceptual")
@@ -201,24 +249,36 @@ class Question(Base):
     )
 
 
+# ==================================================
+# QUESTION-CONCEPT MAP
+# ==================================================
 class QuestionConcept(Base):
-    """Maps a question to one or more concepts (M2M)."""
     __tablename__ = "question_concepts"
     id = Column(Integer, primary_key=True, index=True)
-    question_id = Column(Integer, ForeignKey("questions.id"), nullable=False, index=True)
-    concept_id = Column(Integer, ForeignKey("concepts.id"), nullable=False, index=True)
+    question_id = Column(
+        Integer, ForeignKey("questions.id"), nullable=False, index=True
+    )
+    concept_id = Column(
+        Integer, ForeignKey("concepts.id"), nullable=False, index=True
+    )
     weight = Column(Float, default=1.0)
 
     question = relationship("Question", back_populates="concept_links")
     concept = relationship("Concept", back_populates="question_links")
 
 
+# ==================================================
+# QUESTION ATTEMPT
+# ==================================================
 class QuestionAttempt(Base):
-    """One row per question attempt by a student."""
     __tablename__ = "question_attempts"
     id = Column(Integer, primary_key=True, index=True)
-    student_id = Column(Integer, ForeignKey("students.id"), nullable=False, index=True)
-    question_id = Column(Integer, ForeignKey("questions.id"), nullable=False, index=True)
+    student_id = Column(
+        Integer, ForeignKey("students.id"), nullable=False, index=True
+    )
+    question_id = Column(
+        Integer, ForeignKey("questions.id"), nullable=False, index=True
+    )
     selected_option = Column(String(1), nullable=True)
     is_correct = Column(Boolean, default=False)
     time_spent_secs = Column(Integer, default=0)
@@ -229,12 +289,18 @@ class QuestionAttempt(Base):
     question = relationship("Question", back_populates="attempts")
 
 
+# ==================================================
+# CONCEPT STAT
+# ==================================================
 class ConceptStat(Base):
-    """Materialized per-student, per-concept performance snapshot."""
     __tablename__ = "concept_stats"
     id = Column(Integer, primary_key=True, index=True)
-    student_id = Column(Integer, ForeignKey("students.id"), nullable=False, index=True)
-    concept_id = Column(Integer, ForeignKey("concepts.id"), nullable=False, index=True)
+    student_id = Column(
+        Integer, ForeignKey("students.id"), nullable=False, index=True
+    )
+    concept_id = Column(
+        Integer, ForeignKey("concepts.id"), nullable=False, index=True
+    )
     attempts = Column(Integer, default=0)
     correct = Column(Integer, default=0)
     score = Column(Float, default=0.0)
@@ -248,12 +314,18 @@ class ConceptStat(Base):
     concept = relationship("Concept", back_populates="stats")
 
 
+# ==================================================
+# RECOMMENDATION
+# ==================================================
 class Recommendation(Base):
-    """Personalized study recommendation generated by the engine."""
     __tablename__ = "recommendations"
     id = Column(Integer, primary_key=True, index=True)
-    student_id = Column(Integer, ForeignKey("students.id"), nullable=False, index=True)
-    concept_id = Column(Integer, ForeignKey("concepts.id"), nullable=False, index=True)
+    student_id = Column(
+        Integer, ForeignKey("students.id"), nullable=False, index=True
+    )
+    concept_id = Column(
+        Integer, ForeignKey("concepts.id"), nullable=False, index=True
+    )
     priority = Column(Float, default=0.0)
     reason = Column(Text, default="")
     suggested_minutes = Column(Integer, default=30)
@@ -263,12 +335,20 @@ class Recommendation(Base):
 
     student = relationship("Student", back_populates="recommendations")
     concept = relationship("Concept", back_populates="recommendations")
+
+
+# ==================================================
+# SEARCH HISTORY
+# ==================================================
 class SearchHistory(Base):
-    """Records every topic a student has searched."""
     __tablename__ = "search_history"
     id = Column(Integer, primary_key=True, index=True)
-    student_id = Column(Integer, ForeignKey("students.id"), nullable=False, index=True)
-    topic_id = Column(Integer, ForeignKey("topics.id"), nullable=False, index=True)
+    student_id = Column(
+        Integer, ForeignKey("students.id"), nullable=False, index=True
+    )
+    topic_id = Column(
+        Integer, ForeignKey("topics.id"), nullable=False, index=True
+    )
     query = Column(String, nullable=False)
     searched_at = Column(DateTime(timezone=True), server_default=func.now())
 
