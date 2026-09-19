@@ -25,29 +25,64 @@ import {
 } from "lucide-react";
 import "./Recommendations.css";
 
+const CACHE_KEY = "recs_cache_v1";
+
 export default function Recommendations() {
   const { user } = useAuth();
   const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [regenerating, setRegenerating] = useState(false);
   const [error, setError] = useState("");
   const [openingId, setOpeningId] = useState(null);
   const navigate = useNavigate();
 
+  // ==================================================
+  // Instant from cache + silent background refresh
+  // ==================================================
   useEffect(() => {
     if (!user?.student_id) return;
-    loadRecs();
+
+    // Step 1: Instant from cache
+    let hasCache = false;
+    try {
+      const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
+      if (cached && cached.student_id === user.student_id) {
+        setData(cached.data);
+        hasCache = true;
+        setLoading(false);
+      }
+    } catch {
+      // ignore
+    }
+
+    // Step 2: Background refresh
+    refreshRecommendations(!hasCache);
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.student_id]);
 
-  const loadRecs = async () => {
-    setLoading(true);
+  const refreshRecommendations = async (showLoading = false) => {
+    if (!user?.student_id) return;
+    if (showLoading) setLoading(true);
     setError("");
+
     try {
       const res = await getRecommendationsList(user.student_id);
       setData(res.data);
-    } catch {
-      setError("Failed to load recommendations");
+      try {
+        localStorage.setItem(
+          CACHE_KEY,
+          JSON.stringify({
+            student_id: user.student_id,
+            data: res.data,
+            fetchedAt: Date.now(),
+          })
+        );
+      } catch {
+        // ignore storage errors
+      }
+    } catch (err) {
+      if (!data) setError("Failed to load recommendations");
     } finally {
       setLoading(false);
     }
@@ -58,7 +93,9 @@ export default function Recommendations() {
     setError("");
     try {
       await generateRecommendations(user.student_id, true);
-      await loadRecs();
+      // Clear cache so next load fetches fresh
+      localStorage.removeItem(CACHE_KEY);
+      await refreshRecommendations(false);
     } catch (err) {
       setError(err.response?.data?.detail || "Regeneration failed");
     } finally {
@@ -70,7 +107,28 @@ export default function Recommendations() {
     e.stopPropagation();
     try {
       await completeRecommendation(recId, user.student_id);
-      await loadRecs();
+      // Optimistic update: remove from list immediately
+      setData((prev) => {
+        if (!prev) return prev;
+        const updated = {
+          ...prev,
+          total: prev.total - 1,
+          recommendations: prev.recommendations.filter((r) => r.id !== recId),
+        };
+        try {
+          localStorage.setItem(
+            CACHE_KEY,
+            JSON.stringify({
+              student_id: user.student_id,
+              data: updated,
+              fetchedAt: Date.now(),
+            })
+          );
+        } catch {
+          // ignore
+        }
+        return updated;
+      });
     } catch {
       setError("Could not mark complete");
     }
@@ -152,7 +210,9 @@ export default function Recommendations() {
       </div>
 
       {error && <div className="recs-error">{error}</div>}
-      {loading && <p className="recs-muted">Loading recommendations...</p>}
+      {loading && !data && (
+        <p className="recs-muted">Loading recommendations...</p>
+      )}
 
       {data && data.total === 0 && (
         <div className="recs-empty">

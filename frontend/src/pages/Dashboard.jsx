@@ -16,33 +16,106 @@ import {
 } from "lucide-react";
 import "./Dashboard.css";
 
+const CACHE_KEY = "dashboard_cache_v1";
+const RECS_CACHE_KEY = "dashboard_recs_cache_v1";
+const CACHE_TTL_MS = 60 * 1000; // 60 seconds
+
 export default function Dashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
   const [data, setData] = useState(null);
   const [recs, setRecs] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [openingRecId, setOpeningRecId] = useState(null);
 
+  // ==================================================
+  // Instant load from cache, then silent refresh
+  // ==================================================
   useEffect(() => {
     if (!user?.student_id) return;
-    setLoading(true);
+
+    // ---- Step 1: Instant from cache ----
+    let hasCache = false;
+    try {
+      const cachedData = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
+      const cachedRecs = JSON.parse(
+        localStorage.getItem(RECS_CACHE_KEY) || "null"
+      );
+
+      if (cachedData && cachedData.student_id === user.student_id) {
+        setData(cachedData.data);
+        hasCache = true;
+        setLoading(false); // ← Show content immediately
+      }
+
+      if (cachedRecs && cachedRecs.student_id === user.student_id) {
+        setRecs(cachedRecs.data || []);
+      }
+    } catch {
+      // ignore cache errors
+    }
+
+    // ---- Step 2: Refresh in background ----
+    refreshAll(!hasCache); // pass true = show spinner on first ever load
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.student_id]);
+
+  const refreshAll = async (showLoading = false) => {
+    if (!user?.student_id) return;
+
+    if (showLoading) setLoading(true);
     setError("");
-    getDashboardAnalytics(user.student_id)
-      .then((res) => setData(res.data))
-      .catch(() => setError("Failed to load dashboard data"))
-      .finally(() => setLoading(false));
-  }, [user?.student_id]);
 
-  useEffect(() => {
-    if (!user?.student_id) return;
-    getRecommendationsList(user.student_id)
-      .then((res) => setRecs(res.data.recommendations.slice(0, 3)))
-      .catch(() => setRecs([]));
-  }, [user?.student_id]);
+    // Fetch both in parallel — much faster than sequential
+    const [analyticsResult, recsResult] = await Promise.allSettled([
+      getDashboardAnalytics(user.student_id),
+      getRecommendationsList(user.student_id),
+    ]);
 
+    if (analyticsResult.status === "fulfilled") {
+      setData(analyticsResult.value.data);
+      try {
+        localStorage.setItem(
+          CACHE_KEY,
+          JSON.stringify({
+            student_id: user.student_id,
+            data: analyticsResult.value.data,
+            fetchedAt: Date.now(),
+          })
+        );
+      } catch {
+        // ignore storage errors
+      }
+    } else if (!data) {
+      setError("Failed to load dashboard data");
+    }
+
+    if (recsResult.status === "fulfilled") {
+      const topRecs = recsResult.value.data.recommendations.slice(0, 3);
+      setRecs(topRecs);
+      try {
+        localStorage.setItem(
+          RECS_CACHE_KEY,
+          JSON.stringify({
+            student_id: user.student_id,
+            data: topRecs,
+            fetchedAt: Date.now(),
+          })
+        );
+      } catch {
+        // ignore storage errors
+      }
+    }
+
+    setLoading(false);
+  };
+
+  // ==================================================
+  // Recommendation click handler
+  // ==================================================
   const prefetchRec = (rec) => {
     if (!user?.student_id) return;
     searchTopic(rec.concept_name, user.student_id, "medium").catch(() => {});
@@ -79,7 +152,8 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {loading && <p className="dash-muted">Loading dashboard...</p>}
+      {/* Show spinner ONLY on first ever load (no cache) */}
+      {loading && !data && <p className="dash-muted">Loading dashboard...</p>}
 
       {data && (
         <>

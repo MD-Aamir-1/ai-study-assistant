@@ -1,6 +1,5 @@
 """
-Generates GFG-style content + concepts with speed optimizations.
-Uses per-topic lock + text normalizer + LaTeX repair.
+Generates GFG-style content + concepts with broad-field awareness.
 """
 
 import json
@@ -25,19 +24,47 @@ def _get_topic_lock(topic_id: int) -> threading.Lock:
         return _topic_locks[topic_id]
 
 
+# ==================================================
+# Known broad fields — treated as surveys
+# ==================================================
+BROAD_FIELDS = {
+    "ai", "artificial intelligence",
+    "ml", "machine learning",
+    "dl", "deep learning",
+    "data science",
+    "data analytics", "data analysis",
+    "web development", "web dev",
+    "python", "java", "javascript", "c", "c++", "c#", "go", "rust",
+    "dsa", "data structures", "algorithms",
+    "cloud", "cloud computing", "aws", "azure", "gcp",
+    "cybersecurity", "cyber security", "security",
+    "devops",
+    "blockchain",
+    "sql", "databases", "dbms",
+    "operating systems", "os", "networking",
+    "nlp", "computer vision",
+    "iot", "internet of things",
+    "ux", "ui", "ux design", "ui design",
+}
+
+
+def _is_broad_field(topic_name: str) -> bool:
+    """Return True if topic is a broad field (not a narrow technique)."""
+    key = topic_name.strip().lower()
+    # Direct match
+    if key in BROAD_FIELDS:
+        return True
+    # Short name (1-2 words) that's clearly a field
+    words = key.split()
+    if len(words) <= 2 and any(key in bf or bf in key for bf in BROAD_FIELDS):
+        return True
+    return False
+
+
 def _repair_latex(text: str) -> str:
-    """
-    Fix common LaTeX breakages from JSON escape collisions:
-      TAB + 'ext'  →  '\\text'
-      TAB + 'heta' →  '\\theta'
-      etc.
-    """
     if not isinstance(text, str):
         return text
-
     s = text
-
-    # TAB → \t commands
     s = s.replace("\t" + "ext", r"\text")
     s = s.replace("\t" + "imes", r"\times")
     s = s.replace("\t" + "heta", r"\theta")
@@ -48,37 +75,23 @@ def _repair_latex(text: str) -> str:
     s = s.replace("\t" + "ag", r"\tag")
     s = s.replace("\t" + "au", r"\tau")
     s = s.replace("\t" + "ilde", r"\tilde")
-
-    # CR → \r commands
     s = s.replace("\r" + "ight", r"\right")
     s = s.replace("\r" + "angle", r"\rangle")
     s = s.replace("\r" + "floor", r"\rfloor")
     s = s.replace("\r" + "ceil", r"\rceil")
     s = s.replace("\r" + "ho", r"\rho")
-
-    # LF → \n commands
     s = s.replace("\n" + "u", r"\nu")
     s = s.replace("\n" + "abla", r"\nabla")
     s = s.replace("\n" + "ewline", r"\newline")
-    s = s.replace("\n" + "onumber", r"\nonumber")
-    s = s.replace("\n" + "otin", r"\notin")
-    s = s.replace("\n" + "eg", r"\neg")
-    s = s.replace("\n" + "eq", r"\neq")
-
-    # Fix "exts.t." mangled from "\text{s.t.}"
     s = re.sub(r"exts\.t\.", r"\\text{ s.t. }", s)
     s = re.sub(r"extfor([a-z]+)", r"\\text{ for \1}", s)
-
-    # Collapse double-escaped commands
     s = s.replace(r"\\text", r"\text")
     s = s.replace(r"\\times", r"\times")
     s = s.replace(r"\\theta", r"\theta")
-
     return s
 
 
 def _normalize_text(value):
-    """Recursively normalize text: real newlines + LaTeX repair."""
     if isinstance(value, str):
         s = value.replace("\\\\n", "\n")
         s = s.replace("\\n", "\n")
@@ -95,6 +108,9 @@ def _normalize_text(value):
     return value
 
 
+# ==================================================
+# SYSTEM PROMPT
+# ==================================================
 CONTENT_SYSTEM_PROMPT = (
     "You are a warm, patient teacher writing beginner-friendly educational articles "
     "in the style of GeeksforGeeks. Plain prose, real-world examples, no jargon without explanation. "
@@ -110,6 +126,9 @@ CONTENT_SYSTEM_PROMPT = (
 )
 
 
+# ==================================================
+# STANDARD PROMPT (narrow topic)
+# ==================================================
 CONTENT_PROMPT_TEMPLATE = """Write a beginner-friendly article about "{topic}" ({subject}, {difficulty}).
 
 STYLE (match GeeksforGeeks):
@@ -126,8 +145,7 @@ MATH — KEEP IT SIMPLE:
 - Simple formulas: use backticks like `y = mx + b`
 - Real formulas on their own line: use $$...$$
 - In JSON, write backslashes DOUBLED.
-- Prefer words over symbols. Example: say "sum of squared errors" instead of sigma notation.
-- Avoid complex LaTeX commands unless absolutely needed.
+- Prefer words over symbols.
 
 BULLET LISTS — CRITICAL FORMATTING:
 For challenges_md, best_practices_md, applications_md, related_topics_md:
@@ -135,27 +153,18 @@ For challenges_md, best_practices_md, applications_md, related_topics_md:
 - Never put two items on the same line
 - Format: - **Name:** one-sentence explanation
 
-Correct:
-- **Bias and Fairness:** Models may reproduce harmful stereotypes.
-- **Hallucination:** Generated outputs can contain plausible but incorrect information.
-
-Wrong: two items on the same line, or all merged into a paragraph.
-
 TYPES SECTION:
-If the topic has WELL-KNOWN subtypes, list them:
+If the topic has WELL-KNOWN subtypes, list them using:
 ### Type 1: Type Name
 description
 
 If NO, return types_md as EMPTY STRING. Never write "No types available."
 
-Reference:
+Reference of topics with types:
 - SVM to SVC, SVR, One-Class SVM, Linear, Kernel
 - Neural Networks to CNN, RNN, Transformer, Feedforward
 - Machine Learning to Supervised, Unsupervised, Reinforcement
-- Generative AI to Text, Image, Audio, Video, Multimodal
 - Transfer Learning to Feature Extraction, Fine-tuning, Domain Adaptation
-
-Topics with NO types (return empty): Recursion, Binary Search, HTTP Protocol.
 
 SECTIONS:
 1. intro_md — 2 paragraphs.
@@ -193,10 +202,115 @@ Topic: {topic}
 """
 
 
+# ==================================================
+# BROAD-FIELD PROMPT (survey-style)
+# ==================================================
+BROAD_FIELD_PROMPT_TEMPLATE = """Write a comprehensive, beginner-friendly SURVEY article about the field "{topic}".
+
+This is a BROAD FIELD, not a narrow technique. The reader is a complete beginner
+exploring the field for the first time. The article should act as a roadmap.
+
+STYLE (match GeeksforGeeks):
+- Warm, welcoming, patient tone
+- Plain prose paragraphs
+- Assume the reader knows nothing about the field
+- Start with why this field exists and what problems it solves
+
+═══════════════════════════════════════════════
+SPECIAL: BROAD FIELD STRUCTURE
+═══════════════════════════════════════════════
+
+Because "{topic}" is a FIELD, the content must:
+1. Give a clear, motivating introduction to the whole field
+2. List the MAJOR SUB-FIELDS / BRANCHES (4-8 areas) as the "types" section
+3. Show a simple learning roadmap (what to learn first, second, third)
+4. Provide real-world examples from different areas
+5. Explain the tools/technologies used in the field
+6. List career paths / roles
+7. List common misconceptions beginners have
+
+DEFINITION STYLE (intro_md):
+Paragraph 1: Clear 1-sentence definition. Then "In simple words, ..." Then what problems it solves.
+Paragraph 2: Brief history / why it exists.
+Paragraph 3: 2-3 bullet examples of real-world uses.
+
+MATH — KEEP IT SIMPLE:
+- Simple formulas: use backticks
+- Real formulas on their own line: use $$...$$
+- Prefer words over symbols.
+
+BULLET LISTS — CRITICAL FORMATTING:
+- Write each item on its OWN LINE starting with "- "
+- Never merge items onto one line
+- Format: - **Name:** one-sentence explanation
+
+SECTIONS:
+
+1. intro_md — 3 paragraphs (definition + history + examples) — for a beginner.
+
+2. real_world_example_md — 2 paragraphs showing one vivid story about how
+   this field is used in real life.
+
+3. why_needed_md — Why the field matters. Use ### 1. Reason / ### 2. Reason.
+   Each reason gets a paragraph + 2-3 bullet examples.
+
+4. how_it_works_md — The field broken into logical learning stages.
+   Use ### Stage 1: Name / ### Stage 2: Name.
+   Each stage: 1 paragraph explaining what's covered + why it matters.
+
+5. types_md — The MAJOR SUB-FIELDS of this field. Use ### Sub-field 1: Name /
+   ### Sub-field 2: Name. Each: 1 paragraph + a one-line example of what you can build.
+
+6. applications_md — Bullet list of 6-8 real industries / use cases.
+
+7. challenges_md — Bullet list of 4-6 challenges for beginners entering the field
+   (not technical challenges — learning-curve challenges).
+
+8. best_practices_md — Bullet list of 5-6 tips for learning this field effectively.
+
+9. related_topics_md — Bullet list of 4-6 ADJACENT fields the learner should
+   explore next (e.g., after ML, try Deep Learning, Data Engineering).
+
+10. diagram_mermaid — Mermaid flowchart showing the LEARNING ROADMAP of the field.
+    Nodes should be stages/sub-fields. 6-10 nodes.
+
+11. diagram_caption — One line describing the roadmap.
+
+TONE: 1200-1600 words. Beginner-friendly. Motivating.
+
+Return ONLY this JSON:
+{{
+  "title": "string",
+  "tagline": "one-line subtitle",
+  "intro_md": "string",
+  "real_world_example_md": "string",
+  "why_needed_md": "string",
+  "how_it_works_md": "string",
+  "types_md": "string",
+  "applications_md": "string",
+  "challenges_md": "string",
+  "best_practices_md": "string",
+  "related_topics_md": "string",
+  "diagram_mermaid": "string",
+  "diagram_caption": "string"
+}}
+
+Topic: {topic}
+"""
+
+
 def _try_generate(model: str, topic: str, subject: str, difficulty: str) -> dict:
-    prompt = CONTENT_PROMPT_TEMPLATE.format(
+    # Choose prompt based on field type
+    template = (
+        BROAD_FIELD_PROMPT_TEMPLATE
+        if _is_broad_field(topic)
+        else CONTENT_PROMPT_TEMPLATE
+    )
+
+    prompt = template.format(
         topic=topic, subject=subject, difficulty=difficulty
     )
+
     content = call_llm_json(
         prompt,
         system=CONTENT_SYSTEM_PROMPT,
@@ -206,6 +320,7 @@ def _try_generate(model: str, topic: str, subject: str, difficulty: str) -> dict
     )
     if not isinstance(content, dict) or "title" not in content:
         raise RuntimeError("LLM returned malformed content")
+
     for field in [
         "tagline", "intro_md", "real_world_example_md", "why_needed_md",
         "how_it_works_md", "types_md", "applications_md", "challenges_md",

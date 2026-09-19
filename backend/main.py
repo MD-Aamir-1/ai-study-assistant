@@ -628,6 +628,27 @@ def search_or_create_topic(payload: TopicSearchRequest, db: Session = Depends(ge
     if not name:
         raise HTTPException(status_code=400, detail="Topic name cannot be empty")
 
+    # ---------- Strip common user-added suffixes ----------
+    # "Data Science Tutorial" → "Data Science"
+    # "Python Guide" → "Python"
+    # Keeps the topic name clean so section titles read naturally.
+    SUFFIXES = [
+        " full course", " complete guide", " tutorial",
+        " course", " guide", " notes",
+    ]
+    stripped = True
+    while stripped and name:
+        stripped = False
+        lower = name.lower()
+        for suffix in SUFFIXES:
+            if lower.endswith(suffix):
+                name = name[: -len(suffix)].strip()
+                stripped = True
+                break
+
+    if not name:
+        raise HTTPException(status_code=400, detail="Topic name cannot be empty")
+
     explored = (
         db.query(models.Subject)
         .filter(
@@ -647,20 +668,36 @@ def search_or_create_topic(payload: TopicSearchRequest, db: Session = Depends(ge
         .filter(models.Topic.subject_id == explored.id, models.Topic.name.ilike(name))
         .first()
     )
-    if existing:
-        return {
-            "topic_id": existing.id,
-            "topic_name": existing.name,
-            "subject_id": explored.id,
-            "subject_name": explored.name,
-            "difficulty": existing.difficulty,
-            "created": False,
-        }
 
-    topic = models.Topic(name=name, difficulty=payload.difficulty, subject_id=explored.id)
-    db.add(topic)
-    db.commit()
-    db.refresh(topic)
+    if existing:
+        topic = existing
+        created = False
+    else:
+        topic = models.Topic(name=name, difficulty=payload.difficulty, subject_id=explored.id)
+        db.add(topic)
+        db.commit()
+        db.refresh(topic)
+        created = True
+
+    # ---------- Record in search history ----------
+    try:
+        # Delete any older entry for the same topic (keeps the latest one)
+        db.query(models.SearchHistory).filter(
+            models.SearchHistory.student_id == payload.student_id,
+            models.SearchHistory.topic_id == topic.id,
+        ).delete()
+
+        history_entry = models.SearchHistory(
+            student_id=payload.student_id,
+            topic_id=topic.id,
+            query=name,
+        )
+        db.add(history_entry)
+        db.commit()
+    except Exception as e:
+        # History failure must not break search
+        print(f"[search-or-create] History save failed: {e}")
+        db.rollback()
 
     return {
         "topic_id": topic.id,
@@ -668,7 +705,7 @@ def search_or_create_topic(payload: TopicSearchRequest, db: Session = Depends(ge
         "subject_id": explored.id,
         "subject_name": explored.name,
         "difficulty": topic.difficulty,
-        "created": True,
+        "created": created,
     }
 
 
@@ -1222,3 +1259,68 @@ def get_notifications(student_id: int, db: Session = Depends(get_db)):
         "total": len(notifications),
         "notifications": notifications,
     }
+# ==================================================
+# SEARCH HISTORY
+# ==================================================
+@app.get("/students/{student_id}/search-history")
+def get_search_history(student_id: int, limit: int = 20, db: Session = Depends(get_db)):
+    student = db.query(models.Student).filter(models.Student.id == student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    rows = (
+        db.query(models.SearchHistory)
+        .filter(models.SearchHistory.student_id == student_id)
+        .order_by(models.SearchHistory.searched_at.desc())
+        .limit(max(1, min(limit, 50)))
+        .all()
+    )
+
+    result = []
+    for row in rows:
+        topic = db.query(models.Topic).filter(models.Topic.id == row.topic_id).first()
+        subject = None
+        if topic:
+            subject = db.query(models.Subject).filter(models.Subject.id == topic.subject_id).first()
+
+        result.append({
+            "id": row.id,
+            "topic_id": row.topic_id,
+            "topic_name": topic.name if topic else row.query,
+            "subject_name": subject.name if subject else "Explored Topics",
+            "searched_at": row.searched_at.isoformat() if row.searched_at else None,
+        })
+
+    return {
+        "student_id": student_id,
+        "total": len(result),
+        "history": result,
+    }
+
+
+@app.delete("/search-history/{entry_id}")
+def delete_search_history_entry(entry_id: int, student_id: int, db: Session = Depends(get_db)):
+    row = (
+        db.query(models.SearchHistory)
+        .filter(
+            models.SearchHistory.id == entry_id,
+            models.SearchHistory.student_id == student_id,
+        )
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="History entry not found")
+    db.delete(row)
+    db.commit()
+    return {"message": "Deleted", "id": entry_id}
+
+
+@app.delete("/students/{student_id}/search-history")
+def clear_search_history(student_id: int, db: Session = Depends(get_db)):
+    deleted = (
+        db.query(models.SearchHistory)
+        .filter(models.SearchHistory.student_id == student_id)
+        .delete()
+    )
+    db.commit()
+    return {"message": "History cleared", "deleted": deleted}

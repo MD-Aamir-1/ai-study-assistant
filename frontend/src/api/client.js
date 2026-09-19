@@ -90,4 +90,14 @@ export const learnFromText = (text, instruction, studentId = null) =>
 export const getNotifications = (studentId) =>
   API.get(`/notifications/${studentId}`);
 
+// ---------- SEARCH HISTORY ----------
+export const getSearchHistory = (studentId, limit = 20) =>
+  API.get(`/students/${studentId}/search-history?limit=${limit}`);
+
+export const deleteHistoryEntry = (entryId, studentId) =>
+  API.delete(`/search-history/${entryId}?student_id=${studentId}`);
+
+export const clearHistory = (studentId) =>
+  API.delete(`/students/${studentId}/search-history`);
+
 export default API;

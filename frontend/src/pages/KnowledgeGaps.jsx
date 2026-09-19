@@ -13,22 +13,66 @@ import {
 } from "lucide-react";
 import "./KnowledgeGaps.css";
 
+const CACHE_KEY = "gaps_cache_v1";
+
 export default function KnowledgeGaps() {
   const { user } = useAuth();
   const [data, setData] = useState(null);
   const [filter, setFilter] = useState("all");
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  // ==================================================
+  // Instant from cache + silent refresh
+  // ==================================================
   useEffect(() => {
     if (!user?.student_id) return;
-    setLoading(true);
-    setError("");
-    getStudentConcepts(user.student_id)
-      .then((res) => setData(res.data))
-      .catch(() => setError("Failed to load concept data"))
-      .finally(() => setLoading(false));
+
+    // Step 1: Instant from cache
+    let hasCache = false;
+    try {
+      const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
+      if (cached && cached.student_id === user.student_id) {
+        setData(cached.data);
+        hasCache = true;
+        setLoading(false);
+      }
+    } catch {
+      // ignore
+    }
+
+    // Step 2: Background refresh
+    refreshGaps(!hasCache);
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.student_id]);
+
+  const refreshGaps = async (showLoading = false) => {
+    if (!user?.student_id) return;
+    if (showLoading) setLoading(true);
+    setError("");
+
+    try {
+      const res = await getStudentConcepts(user.student_id);
+      setData(res.data);
+      try {
+        localStorage.setItem(
+          CACHE_KEY,
+          JSON.stringify({
+            student_id: user.student_id,
+            data: res.data,
+            fetchedAt: Date.now(),
+          })
+        );
+      } catch {
+        // ignore storage errors
+      }
+    } catch (err) {
+      if (!data) setError("Failed to load concept data");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const trendIcon = (t) => {
     if (t === "improving") return <TrendingUp size={12} />;
@@ -42,7 +86,6 @@ export default function KnowledgeGaps() {
     return "gap-weak";
   };
 
-  // Flatten concepts, attach topic info
   const allConcepts = (data?.topics || []).flatMap((t) =>
     t.concepts.map((c) => ({
       ...c,
@@ -64,7 +107,6 @@ export default function KnowledgeGaps() {
 
   const sorted = [...filtered].sort((a, b) => a.score - b.score);
 
-  // Summary stats
   const total = allConcepts.length;
   const weak = allConcepts.filter((c) => c.score < 50).length;
   const strong = allConcepts.filter((c) => c.score >= 75).length;
@@ -94,7 +136,7 @@ export default function KnowledgeGaps() {
       </div>
 
       {error && <div className="gaps-error">{error}</div>}
-      {loading && <p className="gaps-muted">Loading...</p>}
+      {loading && !data && <p className="gaps-muted">Loading...</p>}
 
       {data && total === 0 && (
         <div className="gaps-empty">
@@ -108,7 +150,6 @@ export default function KnowledgeGaps() {
 
       {data && total > 0 && (
         <>
-          {/* SUMMARY */}
           <div className="gaps-stats">
             <div className="gap-stat">
               <div className="gap-stat-icon icon-blue">
@@ -151,16 +192,13 @@ export default function KnowledgeGaps() {
             </div>
           </div>
 
-          {/* ML SUMMARY STRIP */}
           {atRisk > 0 && (
             <div className="ml-summary-strip">
               <div className="ml-summary-icon">
                 <Brain size={18} />
               </div>
               <div>
-                <div className="ml-summary-title">
-                  ML Risk Analysis
-                </div>
+                <div className="ml-summary-title">ML Risk Analysis</div>
                 <div className="ml-summary-text">
                   Your Random Forest model flagged{" "}
                   <b>
@@ -172,7 +210,6 @@ export default function KnowledgeGaps() {
             </div>
           )}
 
-          {/* LIST */}
           {sorted.length === 0 ? (
             <p className="gaps-muted">No concepts match this filter.</p>
           ) : (

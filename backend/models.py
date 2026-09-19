@@ -24,7 +24,7 @@ class Student(Base):
     question_attempts = relationship("QuestionAttempt", back_populates="student")
     concept_stats = relationship("ConceptStat", back_populates="student")
     recommendations = relationship("Recommendation", back_populates="student")
-
+    search_history = relationship("SearchHistory", cascade="all, delete-orphan", order_by="desc(SearchHistory.searched_at)")
 
 class Subject(Base):
     __tablename__ = "subjects"
@@ -263,3 +263,14 @@ class Recommendation(Base):
 
     student = relationship("Student", back_populates="recommendations")
     concept = relationship("Concept", back_populates="recommendations")
+class SearchHistory(Base):
+    """Records every topic a student has searched."""
+    __tablename__ = "search_history"
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("students.id"), nullable=False, index=True)
+    topic_id = Column(Integer, ForeignKey("topics.id"), nullable=False, index=True)
+    query = Column(String, nullable=False)
+    searched_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    student = relationship("Student")
+    topic = relationship("Topic")
