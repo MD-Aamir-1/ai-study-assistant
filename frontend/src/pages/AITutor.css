@@ -303,3 +303,97 @@
   color: var(--danger);
   background: var(--danger-light);
 }
+/* ---------- Sources under AI responses ---------- */
+.bubble-sources {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.sources-title {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.sources-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.source-item {
+  margin: 0;
+}
+
+.source-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 12.5px;
+  transition: all 0.15s;
+  text-decoration: none;
+}
+
+.source-link:hover {
+  border-color: var(--primary);
+  background: var(--primary-light);
+}
+
+.source-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: white;
+  font-size: 10px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.source-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.source-domain {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+  display: none;
+}
+
+.source-ext {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.source-link:hover .source-ext {
+  color: var(--primary);
+}
+
+@media (min-width: 600px) {
+  .source-domain {
+    display: inline;
+  }
+}

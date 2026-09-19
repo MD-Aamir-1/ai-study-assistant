@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { askAITutor } from "../api/client";
 import { useAuth } from "../context/AuthContext";
+import { ExternalLink } from "lucide-react";
 import "./AITutor.css";
 
-const HISTORY_LIMIT = 6; // last 3 user-assistant exchanges
+const HISTORY_LIMIT = 6;
 
 export default function AITutor() {
   const { user } = useAuth();
@@ -21,7 +22,6 @@ export default function AITutor() {
     const q = input.trim();
     if (!q || !user?.student_id || loading) return;
 
-    // Build history BEFORE adding the current user message
     const history = messages
       .slice(-HISTORY_LIMIT)
       .map((m) => ({ role: m.role, content: m.content }));
@@ -38,6 +38,7 @@ export default function AITutor() {
         {
           role: "assistant",
           content: res.data.answer,
+          sources: res.data.sources || [],
         },
       ]);
     } catch (err) {
@@ -61,13 +62,21 @@ export default function AITutor() {
     setError("");
   };
 
+  const getDomain = (url) => {
+    try {
+      return new URL(url).hostname.replace(/^www\./, "");
+    } catch {
+      return url;
+    }
+  };
+
   return (
     <div className="tutor-page">
       <div className="tutor-header">
         <div>
           <h1 className="tutor-title">🤖 AI Tutor</h1>
           <p className="tutor-subtitle">
-            Ask anything. I remember our conversation.
+            Ask anything. I remember our conversation and can search the web.
           </p>
         </div>
         {messages.length > 0 && (
@@ -86,6 +95,33 @@ export default function AITutor() {
               {m.role === "user" ? "You" : "🤖 AI Tutor"}
             </div>
             <div className="bubble-content">{m.content}</div>
+
+            {m.role === "assistant" && m.sources?.length > 0 && (
+              <div className="bubble-sources">
+                <div className="sources-title">Sources</div>
+                <ul className="sources-list">
+                  {m.sources.map((s, idx) => (
+                    <li key={idx} className="source-item">
+                      <a
+                        href={s.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="source-link"
+                      >
+                        <span className="source-num">{idx + 1}</span>
+                        <span className="source-title">
+                          {s.title || getDomain(s.url)}
+                        </span>
+                        <span className="source-domain">
+                          {getDomain(s.url)}
+                        </span>
+                        <ExternalLink size={12} className="source-ext" />
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         ))}
 

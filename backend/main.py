@@ -587,14 +587,15 @@ def ai_ask(req: AIAskRequest, db: Session = Depends(get_db)):
     weak = filter_weak_concepts(weak, max_n=3)
 
     try:
-        answer = ask_tutor(req.question, weak, history=req.history)
+        result = ask_tutor(req.question, weak, history=req.history)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI Tutor error: {str(e)}")
 
     return {
         "student_id": req.student_id,
         "question": req.question,
-        "answer": answer,
+        "answer": result["answer"],
+        "sources": result.get("sources", []),
         "context_concepts": [w["concept_name"] for w in weak],
     }
 
