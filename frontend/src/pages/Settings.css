@@ -599,3 +599,15 @@
     font-size: 18px;
   }
 }
+/* ---------- Language block ---------- */
+.language-block {
+  padding: 16px;
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.06), rgba(139, 92, 246, 0.04));
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: var(--radius-sm);
+}
+
+.language-block label > span:first-child {
+  color: var(--primary);
+  font-weight: 700;
+}

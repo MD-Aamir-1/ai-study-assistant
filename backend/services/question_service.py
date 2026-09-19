@@ -12,7 +12,7 @@ import models
 from services.llm import call_llm_json
 from services.concept_service import get_or_create_concepts
 from services.analysis_service import update_concept_stats
-
+from services.language_service import get_topic_owner_language, language_instruction
 
 # ==================================================
 # GENERATION
@@ -250,6 +250,12 @@ def generate_test(topic_id: int, db: Session, num_questions: int = 8) -> dict:
         difficulty=topic.difficulty or "medium",
         concept_list=concept_list,
     )
+
+    # Inject language instruction
+    language = get_topic_owner_language(topic_id, db)
+    lang_note = language_instruction(language)
+    if lang_note:
+        prompt = prompt + lang_note
 
     result = call_llm_json(
         prompt,

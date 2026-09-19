@@ -85,6 +85,7 @@ def login_or_register(payload: LoginRequest, db: Session = Depends(get_db)):
         "website": student.website or "",
         "github": student.github or "",
         "linkedin": student.linkedin or "",
+        "preferred_language": student.preferred_language or "en",
         "created": created,
     }
 
@@ -128,6 +129,7 @@ def get_student(student_id: int, db: Session = Depends(get_db)):
         "website": student.website or "",
         "github": student.github or "",
         "linkedin": student.linkedin or "",
+        "preferred_language": student.preferred_language or "en",
     }
 
 
@@ -144,6 +146,7 @@ class StudentUpdate(BaseModel):
     website: Optional[str] = None
     github: Optional[str] = None
     linkedin: Optional[str] = None
+    preferred_language: Optional[str] = None
 
 
 @app.put("/students/{student_id}")
@@ -152,18 +155,17 @@ def update_student(student_id: int, updates: StudentUpdate, db: Session = Depend
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
 
-    # Email requires uniqueness check
     if updates.email and updates.email != student.email:
         existing = db.query(models.Student).filter(models.Student.email == updates.email).first()
         if existing:
             raise HTTPException(status_code=400, detail="Email already in use")
         student.email = updates.email
 
-    # All other string fields
     for field in [
         "name", "course", "bio", "interests", "avatar_url",
         "preferred_learning_style", "education_level",
         "location", "website", "github", "linkedin",
+        "preferred_language",
     ]:
         value = getattr(updates, field, None)
         if value is not None:
@@ -186,6 +188,7 @@ def update_student(student_id: int, updates: StudentUpdate, db: Session = Depend
         "website": student.website or "",
         "github": student.github or "",
         "linkedin": student.linkedin or "",
+        "preferred_language": student.preferred_language or "en",
     }
 
 
@@ -238,6 +241,7 @@ def export_student_data(student_id: int, db: Session = Depends(get_db)):
             "interests": student.interests or "",
             "location": student.location or "",
             "education_level": student.education_level or "",
+            "preferred_language": student.preferred_language or "en",
         },
         "subjects": [{"id": s.id, "name": s.name} for s in subjects],
         "topics": [
@@ -662,6 +666,7 @@ def ml_predict(student_id: int, db: Session = Depends(get_db)):
 # AI TUTOR
 # ==================================================
 from ai_tutor import ask_tutor, filter_weak_concepts
+from services.language_service import get_student_language
 
 
 class AIAskRequest(BaseModel):
@@ -702,9 +707,12 @@ def ai_ask(req: AIAskRequest, db: Session = Depends(get_db)):
         })
 
     weak = filter_weak_concepts(weak, max_n=3)
+    language = get_student_language(req.student_id, db)
 
     try:
-        result = ask_tutor(req.question, weak, history=req.history)
+        result = ask_tutor(
+            req.question, weak, history=req.history, language=language
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI Tutor error: {str(e)}")
 
@@ -745,7 +753,6 @@ def search_or_create_topic(payload: TopicSearchRequest, db: Session = Depends(ge
     if not name:
         raise HTTPException(status_code=400, detail="Topic name cannot be empty")
 
-    # Strip common suffixes
     SUFFIXES = [
         " full course", " complete guide", " tutorial",
         " course", " guide", " notes",
@@ -793,7 +800,6 @@ def search_or_create_topic(payload: TopicSearchRequest, db: Session = Depends(ge
         db.refresh(topic)
         created = True
 
-    # Record in search history
     try:
         db.query(models.SearchHistory).filter(
             models.SearchHistory.student_id == payload.student_id,
@@ -909,7 +915,7 @@ def get_topic_full(topic_id: int, db: Session = Depends(get_db)):
 
 
 # ==================================================
-# CONCEPT DEEP-DIVE CONTENT
+# CONCEPT DEEP-DIVE
 # ==================================================
 from services.concept_content_service import (
     get_or_create_concept_content,
@@ -1252,7 +1258,7 @@ class LearnFromTextRequest(BaseModel):
 
 
 @app.post("/ai/learn-from-text")
-def learn_from_text(req: LearnFromTextRequest):
+def learn_from_text(req: LearnFromTextRequest, db: Session = Depends(get_db)):
     text = (req.text or "").strip()
     instruction = (req.instruction or "").strip()
 
@@ -1272,6 +1278,14 @@ def learn_from_text(req: LearnFromTextRequest):
         f"USER'S INSTRUCTION: {instruction}\n\n"
         f"Write a COMPREHENSIVE, GFG-QUALITY response of 2000-4000 words."
     )
+
+    # Inject language instruction if user is logged in
+    if req.student_id:
+        from services.language_service import get_student_language, language_instruction
+        language = get_student_language(req.student_id, db)
+        lang_note = language_instruction(language)
+        if lang_note:
+            user_message += lang_note
 
     try:
         client = get_client()
@@ -1307,7 +1321,6 @@ def get_notifications(student_id: int, db: Session = Depends(get_db)):
 
     notifications = []
 
-    # Weak concepts
     stats = (
         db.query(models.ConceptStat)
         .filter(
@@ -1336,7 +1349,6 @@ def get_notifications(student_id: int, db: Session = Depends(get_db)):
             "priority": 100 - s.score,
         })
 
-    # Recommendations
     recs = (
         db.query(models.Recommendation)
         .filter(
@@ -1365,7 +1377,6 @@ def get_notifications(student_id: int, db: Session = Depends(get_db)):
             "priority": r.priority,
         })
 
-    # Streak
     attempts = (
         db.query(models.QuestionAttempt.attempted_at)
         .filter(models.QuestionAttempt.student_id == student_id)

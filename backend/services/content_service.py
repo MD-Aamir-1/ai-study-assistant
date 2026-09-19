@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 import models
 from services.llm import call_llm_json, FAST_MODEL, DEFAULT_MODEL
-
+from services.language_service import get_topic_owner_language, language_instruction
 
 _topic_locks: dict[int, threading.Lock] = {}
 _locks_guard = threading.Lock()
@@ -299,7 +299,7 @@ Topic: {topic}
 """
 
 
-def _try_generate(model: str, topic: str, subject: str, difficulty: str) -> dict:
+def _try_generate(model: str, topic: str, subject: str, difficulty: str, language: str = "en") -> dict:
     # Choose prompt based on field type
     template = (
         BROAD_FIELD_PROMPT_TEMPLATE
@@ -310,6 +310,11 @@ def _try_generate(model: str, topic: str, subject: str, difficulty: str) -> dict
     prompt = template.format(
         topic=topic, subject=subject, difficulty=difficulty
     )
+
+    # Inject language instruction
+    lang_note = language_instruction(language)
+    if lang_note:
+        prompt = prompt + lang_note
 
     content = call_llm_json(
         prompt,
@@ -331,6 +336,14 @@ def _try_generate(model: str, topic: str, subject: str, difficulty: str) -> dict
 
     content = _normalize_text(content)
     return content
+
+
+def generate_content(topic_name: str, subject_name: str, difficulty: str, language: str = "en") -> dict:
+    try:
+        return _try_generate(FAST_MODEL, topic_name, subject_name, difficulty, language)
+    except Exception as e:
+        print(f"[content_service] Fast model failed ({e}), retrying with fallback...")
+        return _try_generate(DEFAULT_MODEL, topic_name, subject_name, difficulty, language)
 
 
 def generate_content(topic_name: str, subject_name: str, difficulty: str) -> dict:
@@ -361,7 +374,8 @@ def get_or_create_content(topic_id: int, db: Session) -> dict:
     subject = db.query(models.Subject).filter(models.Subject.id == topic.subject_id).first()
     subject_name = subject.name if subject else "General"
 
-    content = generate_content(topic.name, subject_name, topic.difficulty or "medium")
+    language = get_topic_owner_language(topic_id, db)
+    content = generate_content(topic.name, subject_name, topic.difficulty or "medium", language)
 
     record = models.LearningContent(
         topic_id=topic_id,

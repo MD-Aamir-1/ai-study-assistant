@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from groq import Groq
 
 from services.web_search_service import needs_web_search, search_web
-
+from services.language_service import language_instruction
 load_dotenv()
 
 _client = None
@@ -167,7 +167,12 @@ def ask_tutor(
     """
     client = get_client()
 
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    system_prompt = SYSTEM_PROMPT
+    lang_note = language_instruction(language)
+    if lang_note:
+        system_prompt = system_prompt + lang_note
+
+    messages = [{"role": "system", "content": system_prompt}]
 
     # ---------- Weak concepts (soft) ----------
     if weak_concepts:

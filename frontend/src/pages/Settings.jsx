@@ -21,13 +21,8 @@ import {
   Trash2,
   MapPin,
   Globe,
-  Github,
-  Linkedin,
-  BookOpen,
-  Target,
-  TrendingUp,
-  Sparkles,
-  X,
+  Link as LinkIcon,
+  Code,
 } from "lucide-react";
 import "./Settings.css";
 
@@ -56,6 +51,24 @@ const EDUCATION_LEVELS = [
   { value: "prof", label: "Working Professional" },
 ];
 
+const LANGUAGES = [
+  { value: "en", label: "English" },
+  { value: "hi", label: "हिन्दी (Hindi)" },
+  { value: "bn", label: "বাংলা (Bengali)" },
+  { value: "ta", label: "தமிழ் (Tamil)" },
+  { value: "te", label: "తెలుగు (Telugu)" },
+  { value: "es", label: "Español (Spanish)" },
+  { value: "fr", label: "Français (French)" },
+  { value: "de", label: "Deutsch (German)" },
+  { value: "pt", label: "Português (Portuguese)" },
+  { value: "it", label: "Italiano (Italian)" },
+  { value: "ja", label: "日本語 (Japanese)" },
+  { value: "ko", label: "한국어 (Korean)" },
+  { value: "zh", label: "中文 (Chinese)" },
+  { value: "ar", label: "العربية (Arabic)" },
+  { value: "ru", label: "Русский (Russian)" },
+];
+
 export default function Settings() {
   const { user } = useAuth();
   const { theme, setTheme } = useTheme();
@@ -75,6 +88,7 @@ export default function Settings() {
     website: "",
     github: "",
     linkedin: "",
+    preferred_language: "en",
   });
   const [stats, setStats] = useState(null);
   const [error, setError] = useState("");
@@ -82,7 +96,6 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
-  // Load profile from user
   useEffect(() => {
     if (user) {
       setProfile({
@@ -98,11 +111,11 @@ export default function Settings() {
         website: user.website || "",
         github: user.github || "",
         linkedin: user.linkedin || "",
+        preferred_language: user.preferred_language || "en",
       });
     }
   }, [user]);
 
-  // Load stats
   useEffect(() => {
     if (!user?.student_id) return;
     getProfileStats(user.student_id)
@@ -119,9 +132,6 @@ export default function Settings() {
     }, 2500);
   };
 
-  // ==================================================
-  // Avatar upload — resize in-browser, store as base64
-  // ==================================================
   const handleAvatarChange = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -185,9 +195,6 @@ export default function Settings() {
     setProfile((p) => ({ ...p, avatar_url: "" }));
   };
 
-  // ==================================================
-  // Interests — tag toggle
-  // ==================================================
   const selectedInterests = profile.interests
     ? profile.interests.split(",").map((s) => s.trim()).filter(Boolean)
     : [];
@@ -199,9 +206,6 @@ export default function Settings() {
     setProfile((p) => ({ ...p, interests: Array.from(current).join(", ") }));
   };
 
-  // ==================================================
-  // Save
-  // ==================================================
   const handleSaveProfile = async (e) => {
     e.preventDefault();
     if (!user?.student_id) return;
@@ -218,13 +222,11 @@ export default function Settings() {
     setSaving(true);
     try {
       const res = await updateStudent(user.student_id, profile);
-      // Update localStorage + context so topbar reflects changes
       const stored = JSON.parse(localStorage.getItem("user") || "{}");
       localStorage.setItem(
         "user",
         JSON.stringify({ ...stored, ...res.data })
       );
-      // Full reload to update AuthContext everywhere
       window.location.reload();
     } catch (err) {
       flash(err.response?.data?.detail || "Failed to save profile", true);
@@ -232,9 +234,6 @@ export default function Settings() {
     }
   };
 
-  // ==================================================
-  // Export / Delete / Reset
-  // ==================================================
   const handleExport = async () => {
     if (!user?.student_id) return;
     try {
@@ -297,12 +296,9 @@ export default function Settings() {
         </div>
       )}
 
-      {/* ==================================================
-          PROFILE HEADER (avatar + name + stats)
-          ================================================== */}
+      {/* PROFILE HERO */}
       <section className="settings-section profile-hero">
         <div className="profile-hero-inner">
-          {/* Avatar */}
           <div className="avatar-wrap">
             <div className="avatar-large">
               {profile.avatar_url ? (
@@ -320,7 +316,6 @@ export default function Settings() {
                 className="avatar-btn"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={uploadingAvatar}
-                title="Upload photo"
               >
                 <Camera size={14} />
                 {uploadingAvatar ? "Uploading..." : "Change photo"}
@@ -331,7 +326,6 @@ export default function Settings() {
                   type="button"
                   className="avatar-btn avatar-btn-danger"
                   onClick={removeAvatar}
-                  title="Remove photo"
                 >
                   <Trash2 size={14} />
                 </button>
@@ -347,7 +341,6 @@ export default function Settings() {
             />
           </div>
 
-          {/* Name + basic info */}
           <div className="profile-meta">
             <h2 className="profile-name">{profile.name || "Your Name"}</h2>
             <div className="profile-sub">
@@ -363,13 +356,10 @@ export default function Settings() {
                 </>
               )}
             </div>
-            {profile.bio && (
-              <p className="profile-bio">{profile.bio}</p>
-            )}
+            {profile.bio && <p className="profile-bio">{profile.bio}</p>}
           </div>
         </div>
 
-        {/* Stats */}
         {stats && (
           <div className="profile-stats">
             <div className="pstat">
@@ -388,9 +378,7 @@ export default function Settings() {
         )}
       </section>
 
-      {/* ==================================================
-          EDIT PROFILE
-          ================================================== */}
+      {/* EDIT PROFILE */}
       <section className="settings-section">
         <div className="section-head">
           <div className="section-icon icon-blue">
@@ -470,6 +458,35 @@ export default function Settings() {
             />
           </label>
 
+          {/* LANGUAGE */}
+          <div className="language-block">
+            <label>
+              <span>
+                <Globe size={12} /> Preferred Language
+              </span>
+              <select
+                value={profile.preferred_language}
+                onChange={(e) =>
+                  setProfile({
+                    ...profile,
+                    preferred_language: e.target.value,
+                  })
+                }
+              >
+                {LANGUAGES.map((l) => (
+                  <option key={l.value} value={l.value}>
+                    {l.label}
+                  </option>
+                ))}
+              </select>
+              <span className="field-hint">
+                All AI-generated content, tests, and tutor responses will be in
+                this language. Existing cached content stays in its original
+                language until regenerated.
+              </span>
+            </label>
+          </div>
+
           <div className="form-row">
             <label>
               <span>Learning Style</span>
@@ -509,7 +526,7 @@ export default function Settings() {
             </label>
           </div>
 
-          {/* Interests */}
+          {/* INTERESTS */}
           <div className="interests-block">
             <span className="interests-label">
               Interests{" "}
@@ -535,7 +552,7 @@ export default function Settings() {
             </div>
           </div>
 
-          {/* Social links */}
+          {/* SOCIAL LINKS */}
           <div className="form-row">
             <label>
               <span>
@@ -552,7 +569,7 @@ export default function Settings() {
             </label>
             <label>
               <span>
-                <Github size={12} /> GitHub
+                <Code size={12} /> GitHub
               </span>
               <input
                 type="text"
@@ -567,7 +584,7 @@ export default function Settings() {
 
           <label>
             <span>
-              <Linkedin size={12} /> LinkedIn
+              <LinkIcon size={12} /> LinkedIn
             </span>
             <input
               type="text"
@@ -585,9 +602,7 @@ export default function Settings() {
         </form>
       </section>
 
-      {/* ==================================================
-          APPEARANCE
-          ================================================== */}
+      {/* APPEARANCE */}
       <section className="settings-section">
         <div className="section-head">
           <div className="section-icon icon-purple">
@@ -618,9 +633,7 @@ export default function Settings() {
         </div>
       </section>
 
-      {/* ==================================================
-          DATA
-          ================================================== */}
+      {/* DATA */}
       <section className="settings-section">
         <div className="section-head">
           <div className="section-icon icon-blue">
@@ -642,9 +655,7 @@ export default function Settings() {
         </div>
       </section>
 
-      {/* ==================================================
-          DANGER ZONE
-          ================================================== */}
+      {/* DANGER ZONE */}
       <section className="settings-section danger-zone">
         <div className="section-head">
           <div className="section-icon icon-red">

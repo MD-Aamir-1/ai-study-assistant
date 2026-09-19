@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 import models
 from services.llm import call_llm_json, FAST_MODEL, DEFAULT_MODEL
-
+from services.language_service import get_concept_owner_language, language_instruction
 
 _concept_locks: dict[int, threading.Lock] = {}
 _locks_guard = threading.Lock()
@@ -138,6 +138,7 @@ def generate_concept_content(
     topic_name: str,
     subject_name: str,
     difficulty: str,
+    language: str = "en",
 ) -> dict:
     prompt = CONCEPT_CONTENT_PROMPT.format(
         concept=concept_name,
@@ -147,11 +148,15 @@ def generate_concept_content(
         difficulty=difficulty,
     )
 
+    lang_note = language_instruction(language)
+    if lang_note:
+        prompt = prompt + lang_note
+
     try:
         content = call_llm_json(
             prompt,
             system=CONCEPT_SYSTEM_PROMPT,
-            temperature=0.7,
+            temperature=0.6,
             max_tokens=2500,
             model=FAST_MODEL,
         )
@@ -159,7 +164,7 @@ def generate_concept_content(
         content = call_llm_json(
             prompt,
             system=CONCEPT_SYSTEM_PROMPT,
-            temperature=0.7,
+            temperature=0.6,
             max_tokens=2500,
             model=DEFAULT_MODEL,
         )
@@ -228,12 +233,14 @@ def get_or_create_concept_content(concept_id: int, db: Session, force: bool = Fa
         )
         subject_name = subject.name if subject else "General"
 
+        language = get_concept_owner_language(concept_id, db)
         content = generate_concept_content(
             concept_name=concept.name,
             description=concept.description or "",
             topic_name=topic.name,
             subject_name=subject_name,
             difficulty=topic.difficulty or "medium",
+            language=language,
         )
 
         record = models.ConceptContent(

@@ -26,6 +26,7 @@ class Student(Base):
     website = Column(String, default="")
     github = Column(String, default="")
     linkedin = Column(String, default="")
+    preferred_language = Column(String, default="en")   # ISO code: en, hi, es, fr, etc.
 
     subjects = relationship(
         "Subject", back_populates="student", cascade="all, delete-orphan"
