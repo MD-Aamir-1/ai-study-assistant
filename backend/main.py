@@ -544,12 +544,13 @@ def ml_predict(student_id: int, db: Session = Depends(get_db)):
 # ==================================================
 # AI TUTOR
 # ==================================================
-from ai_tutor import ask_tutor
+from ai_tutor import ask_tutor, filter_weak_concepts
 
 
 class AIAskRequest(BaseModel):
     student_id: int
     question: str
+    history: list[dict] = []
 
 
 @app.post("/ai/ask")
@@ -566,8 +567,6 @@ def ai_ask(req: AIAskRequest, db: Session = Depends(get_db)):
 
     weak = []
     for s in stats:
-        if s.score >= 65:
-            continue
         concept = db.query(models.Concept).filter(models.Concept.id == s.concept_id).first()
         if not concept:
             continue
@@ -585,10 +584,10 @@ def ai_ask(req: AIAskRequest, db: Session = Depends(get_db)):
             "attempts": s.attempts,
         })
 
-    weak.sort(key=lambda x: x["score"])
+    weak = filter_weak_concepts(weak, max_n=3)
 
     try:
-        answer = ask_tutor(req.question, weak)
+        answer = ask_tutor(req.question, weak, history=req.history)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI Tutor error: {str(e)}")
 
@@ -732,10 +731,6 @@ def list_topic_concepts(topic_id: int, db: Session = Depends(get_db)):
 
 @app.get("/topics/{topic_id}/full")
 def get_topic_full(topic_id: int, db: Session = Depends(get_db)):
-    """
-    Return topic + content + concepts.
-    Content and concepts are generated IN PARALLEL on cache miss (~8-12s total).
-    """
     topic = db.query(models.Topic).filter(models.Topic.id == topic_id).first()
     if not topic:
         raise HTTPException(status_code=404, detail="Topic not found")
@@ -964,7 +959,6 @@ from ai_tutor import get_client
 
 @app.post("/files/extract")
 async def extract_file_content(file: UploadFile = File(...)):
-    """Upload a PDF, image, or text file → returns extracted text."""
     contents = await file.read()
     if len(contents) > 10 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="File too large. Max 10 MB.")
@@ -996,22 +990,20 @@ LEARN_SYSTEM_PROMPT = """You are a senior educator who writes comprehensive, GFG
 The user has provided text extracted from a document (PDF, image, or text file) along with an instruction.
 
 CORE PRINCIPLES:
-1. NEVER REFUSE. Always produce substantive, helpful educational content — even if the reference text is extremely short (e.g., just a topic name like "Machine Learning").
-2. Treat the uploaded text as REFERENCE MATERIAL, not as your only allowed knowledge. You are a teacher, not a fact-checker. Use your general expertise to teach comprehensively.
-3. If the reference is detailed → ground your explanations in it and cite it where relevant.
-4. If the reference is sparse → use your general knowledge to write a full, rich tutorial on the topic it mentions.
-5. If the reference contains a specific question → answer it thoroughly with reasoning.
-6. If the instruction asks for a specific format → follow it.
+1. NEVER REFUSE. Always produce substantive, helpful educational content — even if the reference text is extremely short.
+2. Treat the uploaded text as REFERENCE MATERIAL, not as your only allowed knowledge. You are a teacher, not a fact-checker.
+3. If the reference is detailed, ground your explanations in it.
+4. If the reference is sparse, use your general knowledge to write a full tutorial on the topic it mentions.
+5. If the reference contains a specific question, answer it thoroughly with reasoning.
 
 DEPTH REQUIREMENTS:
 - Write 2000-4000 words of RICH, well-structured markdown
-- Every section must have multiple paragraphs (not one-liners)
+- Every section must have multiple paragraphs
 - Include at least 2 concrete examples with real numbers where applicable
 - Include at least 1 comparison table where relevant
 - Include code snippets if the topic involves programming
 - Include formulas (using $$...$$ on their own line) where relevant
 - Explain WHY, not just WHAT
-- Anticipate beginner confusion and address it
 
 STRUCTURE:
 # <Topic Title>
@@ -1036,7 +1028,6 @@ FORMATTING:
 - Use $$...$$ for display math — ALWAYS on its own line, never inline
 - Use - or 1. for lists
 - Use tables when comparing things
-- Use fenced code blocks for code
 
 Never say "the source doesn't provide enough information". Instead, teach what you know.
 
@@ -1052,7 +1043,6 @@ class LearnFromTextRequest(BaseModel):
 
 @app.post("/ai/learn-from-text")
 def learn_from_text(req: LearnFromTextRequest):
-    """Generate comprehensive educational content from uploaded text + instruction."""
     text = (req.text or "").strip()
     instruction = (req.instruction or "").strip()
 
@@ -1096,4 +1086,138 @@ def learn_from_text(req: LearnFromTextRequest):
         "answer": answer,
         "truncated": truncated,
         "source_chars": len(text),
+    }
+
+
+# ==================================================
+# FAST NOTIFICATIONS (no ML, no LLM — DB only)
+# ==================================================
+@app.get("/notifications/{student_id}")
+def get_notifications(student_id: int, db: Session = Depends(get_db)):
+    student = db.query(models.Student).filter(models.Student.id == student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    notifications = []
+
+    # 1. Weak concepts (score < 50, attempts >= 1)
+    stats = (
+        db.query(models.ConceptStat)
+        .filter(
+            models.ConceptStat.student_id == student_id,
+            models.ConceptStat.score < 50,
+            models.ConceptStat.attempts >= 1,
+        )
+        .order_by(models.ConceptStat.score.asc())
+        .limit(3)
+        .all()
+    )
+
+    for s in stats:
+        concept = db.query(models.Concept).filter(models.Concept.id == s.concept_id).first()
+        if not concept:
+            continue
+        topic = db.query(models.Topic).filter(models.Topic.id == concept.topic_id).first()
+        if not topic:
+            continue
+        notifications.append({
+            "id": f"weak_{s.concept_id}",
+            "type": "risk",
+            "title": f"Weak: {concept.name}",
+            "body": f"Score {round(s.score)}% — needs revision",
+            "topic_id": topic.id,
+            "action": "Review now",
+            "priority": 100 - s.score,
+        })
+
+    # 2. Pending recommendations (high priority)
+    recs = (
+        db.query(models.Recommendation)
+        .filter(
+            models.Recommendation.student_id == student_id,
+            models.Recommendation.status == "pending",
+            models.Recommendation.priority >= 60,
+        )
+        .order_by(models.Recommendation.priority.desc())
+        .limit(3)
+        .all()
+    )
+
+    for r in recs:
+        concept = db.query(models.Concept).filter(models.Concept.id == r.concept_id).first()
+        if not concept:
+            continue
+        topic = db.query(models.Topic).filter(models.Topic.id == concept.topic_id).first()
+        if not topic:
+            continue
+        notifications.append({
+            "id": f"rec_{r.id}",
+            "type": "recommendation",
+            "title": f"Study: {concept.name}",
+            "body": r.reason or "Recommended by your learning engine",
+            "topic_id": topic.id,
+            "action": "Open content",
+            "priority": r.priority,
+        })
+
+    # 3. Streak
+    attempts = (
+        db.query(models.QuestionAttempt.attempted_at)
+        .filter(models.QuestionAttempt.student_id == student_id)
+        .all()
+    )
+    dates = sorted({a[0].date() for a in attempts if a[0]}, reverse=True)
+
+    streak = 0
+    if dates:
+        today = date_cls.today()
+        if dates[0] >= today - timedelta(days=1):
+            cursor = dates[0]
+            for d in dates:
+                if d == cursor:
+                    streak += 1
+                    cursor = cursor - timedelta(days=1)
+                else:
+                    break
+
+    if streak == 0:
+        notifications.append({
+            "id": "streak_start",
+            "type": "streak",
+            "title": "Start your streak",
+            "body": "Take a test to begin your daily learning streak.",
+            "link": "/quiz",
+            "action": "Go to tests",
+            "priority": 30,
+        })
+    elif streak >= 3:
+        notifications.append({
+            "id": f"streak_{streak}",
+            "type": "streak",
+            "title": f"🔥 {streak}-day streak!",
+            "body": "Keep going — consistency is key.",
+            "link": "/quiz",
+            "action": "Continue",
+            "priority": 40,
+        })
+
+    # 4. Welcome
+    if not notifications:
+        notifications.append({
+            "id": "welcome",
+            "type": "info",
+            "title": "Welcome to AI Study Assistant",
+            "body": "Search any topic or upload notes to get started.",
+            "link": "/search",
+            "action": "Search a topic",
+            "priority": 10,
+        })
+
+    notifications.sort(key=lambda x: -x.get("priority", 0))
+    notifications = notifications[:6]
+
+    return {
+        "student_id": student_id,
+        "total": len(notifications),
+        "notifications": notifications,
     }

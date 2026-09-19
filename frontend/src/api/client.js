@@ -48,6 +48,10 @@ export const getEnrichedTopics = (studentId) =>
 export const getStudentConcepts = (studentId) =>
   API.get(`/students/${studentId}/concepts`);
 
+// ---------- CONCEPT DEEP-DIVE ----------
+export const getConceptContent = (conceptId, force = false) =>
+  API.post(`/concepts/${conceptId}/content?force=${force}`);
+
 // ---------- RECOMMENDATIONS ----------
 export const getRecommendationsList = (studentId) =>
   API.get(`/students/${studentId}/recommendations`);
@@ -59,11 +63,13 @@ export const completeRecommendation = (recId, studentId) =>
   API.put(`/recommendations/${recId}/complete?student_id=${studentId}`);
 
 // ---------- AI TUTOR ----------
-export const askAITutor = (studentId, question) =>
-  API.post("/ai/ask", { student_id: studentId, question });
-// ---------- CONCEPT DEEP-DIVE ----------
-export const getConceptContent = (conceptId, force = false) =>
-  API.post(`/concepts/${conceptId}/content?force=${force}`);
+export const askAITutor = (studentId, question, history = []) =>
+  API.post("/ai/ask", {
+    student_id: studentId,
+    question,
+    history,
+  });
+
 // ---------- FILE UPLOAD & LEARN ----------
 export const extractFile = (file) => {
   const formData = new FormData();
@@ -79,5 +85,9 @@ export const learnFromText = (text, instruction, studentId = null) =>
     instruction,
     student_id: studentId,
   });
+
+// ---------- NOTIFICATIONS ----------
+export const getNotifications = (studentId) =>
+  API.get(`/notifications/${studentId}`);
 
 export default API;

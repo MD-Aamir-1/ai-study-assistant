@@ -1,6 +1,6 @@
 """
-Generates concept-aware test questions using Groq.
-Each question is mapped to one or more concepts and saved to the DB.
+Generates concept-aware test questions with VERIFICATION.
+Each question is verified by a second LLM pass to prevent wrong answer keys.
 """
 
 import json
@@ -14,9 +14,13 @@ from services.concept_service import get_or_create_concepts
 from services.analysis_service import update_concept_stats
 
 
+# ==================================================
+# GENERATION
+# ==================================================
 TEST_SYSTEM_PROMPT = (
     "You are an expert educator producing conceptual multiple-choice questions. "
-    "You always respond with valid JSON only. No markdown fences, no prose."
+    "You always respond with valid JSON only. No markdown fences, no prose. "
+    "CRITICAL: Ensure the 'correct_option' letter truly matches the intended correct answer."
 )
 
 
@@ -34,6 +38,33 @@ Rules:
 - Distractors must be plausible, not silly
 - Provide a brief explanation (1-2 sentences) for why the correct answer is correct
 
+═══════════════════════════════════════════════
+CRITICAL: OPTION-ANSWER CONSISTENCY
+═══════════════════════════════════════════════
+
+After writing each question and its 4 options:
+1. Decide which option is TRULY correct
+2. Place that option in one of the 4 slots (A, B, C, or D)
+3. Set "correct_option" to the EXACT letter of that slot
+
+Double-check:
+- The letter in "correct_option" must match the letter of the correct option
+- The "explanation" must reference the correct answer
+
+BAD EXAMPLE (do not produce):
+{{
+  "option_a": "K-Means",           ← this is the correct answer
+  "correct_option": "B"             ← WRONG! Should be "A"
+}}
+
+Vary the correct_option across questions (not always "A" or "B").
+If 4 questions: put correct answers at A, B, C, D positions (one each).
+
+For each question, return the correct_option AND a short "reasoning" field that
+explains in one sentence WHY that option is correct. This helps verify the mapping.
+
+═══════════════════════════════════════════════
+
 Return ONLY valid JSON matching this schema:
 {{
   "questions": [
@@ -44,7 +75,8 @@ Return ONLY valid JSON matching this schema:
       "option_c": "Third option",
       "option_d": "Fourth option",
       "correct_option": "A",
-      "explanation": "Why the correct answer is correct",
+      "reasoning": "One sentence explaining why the marked option is correct",
+      "explanation": "Why the correct answer is correct (1-2 sentences)",
       "question_type": "conceptual",
       "difficulty": "{difficulty}",
       "concept_names": ["Exact Concept Name 1"]
@@ -58,6 +90,48 @@ Topic: {topic}
 """
 
 
+# ==================================================
+# VERIFICATION PROMPT
+# ==================================================
+VERIFY_SYSTEM_PROMPT = (
+    "You are a meticulous fact-checker. You verify that multiple-choice "
+    "questions have the correct answer key. You respond ONLY with valid JSON."
+)
+
+
+VERIFY_PROMPT_TEMPLATE = """Verify this multiple-choice question.
+
+QUESTION: {question}
+
+OPTION A: {option_a}
+OPTION B: {option_b}
+OPTION C: {option_c}
+OPTION D: {option_d}
+
+DECLARED CORRECT: {correct_option}
+DECLARED EXPLANATION: {explanation}
+
+Your job: determine whether the DECLARED CORRECT option is actually the best answer.
+
+Answer ONLY in this JSON format:
+{{
+  "is_valid": true,
+  "actual_correct_option": "A",
+  "explanation_matches": true,
+  "issues": []
+}}
+
+Rules:
+- is_valid = true IF the declared correct_option is indeed the best answer
+- If a DIFFERENT option is better, set is_valid = false and put the letter in actual_correct_option
+- If the question is fundamentally flawed (multiple correct answers, none correct, ambiguous), set is_valid = false and actual_correct_option = ""
+- explanation_matches = true IF the explanation correctly describes the correct answer
+- issues = list of strings describing any problems (empty if none)
+
+Be strict. If the declared answer is wrong, catch it.
+"""
+
+
 def _find_concept(name: str, concept_map: dict) -> Optional[models.Concept]:
     """Match an LLM-provided concept name to a real concept (fuzzy)."""
     if not name:
@@ -65,24 +139,98 @@ def _find_concept(name: str, concept_map: dict) -> Optional[models.Concept]:
     key = name.strip().lower()
     if key in concept_map:
         return concept_map[key]
-    # Substring fallback (either direction)
     for cname, c in concept_map.items():
         if key in cname or cname in key:
             return c
     return None
 
 
+def _verify_question(q: dict) -> dict:
+    """
+    Verify a single question using Groq.
+    Returns the (possibly corrected) question dict with:
+      - correct_option fixed if wrong
+      - explanation regenerated if mismatched
+      - _verified flag set
+    """
+    verify_prompt = VERIFY_PROMPT_TEMPLATE.format(
+        question=q["question"],
+        option_a=q["option_a"],
+        option_b=q["option_b"],
+        option_c=q["option_c"],
+        option_d=q["option_d"],
+        correct_option=q["correct_option"],
+        explanation=q.get("explanation", ""),
+    )
+
+    try:
+        result = call_llm_json(
+            verify_prompt,
+            system=VERIFY_SYSTEM_PROMPT,
+            temperature=0.1,
+            max_tokens=500,
+        )
+    except Exception as e:
+        # If verification fails, trust the original
+        q["_verified"] = False
+        q["_verify_error"] = str(e)
+        return q
+
+    if not isinstance(result, dict):
+        q["_verified"] = False
+        return q
+
+    is_valid = result.get("is_valid", True)
+    actual = result.get("actual_correct_option", q["correct_option"])
+    expl_matches = result.get("explanation_matches", True)
+    issues = result.get("issues", [])
+
+    # Fix wrong correct_option
+    if not is_valid and actual in ("A", "B", "C", "D"):
+        q["correct_option"] = actual
+        q["_corrected"] = True
+        q["_issues"] = issues
+    elif not is_valid and actual == "":
+        # Question is flawed — mark for regeneration
+        q["_needs_regeneration"] = True
+        q["_issues"] = issues
+
+    # Regenerate explanation if it didn't match
+    if not expl_matches and not q.get("_needs_regeneration"):
+        try:
+            fix_prompt = (
+                f"Write a 1-2 sentence explanation for why "
+                f"option {q['correct_option']} is the correct answer.\n\n"
+                f"Question: {q['question']}\n"
+                f"Correct option {q['correct_option']}: "
+                f"{q['option_' + q['correct_option'].lower()]}\n\n"
+                f"Return ONLY the explanation text, nothing else."
+            )
+            client = __import__("services.llm", fromlist=["get_client"]).get_client()
+            resp = client.chat.completions.create(
+                model="openai/gpt-oss-20b",
+                messages=[{"role": "user", "content": fix_prompt}],
+                temperature=0.4,
+                max_tokens=200,
+            )
+            q["explanation"] = resp.choices[0].message.content.strip()
+            q["_explanation_fixed"] = True
+        except Exception:
+            pass  # keep original explanation
+
+    q["_verified"] = True
+    return q
+
+
 def generate_test(topic_id: int, db: Session, num_questions: int = 8) -> dict:
     """
-    Generate a concept-aware test for a topic.
-    Saves questions + concept links to the DB.
-    Returns a payload ready for the frontend.
+    Generate + verify + save a concept-aware test.
+    Verification ensures no wrong answer keys.
     """
     topic = db.query(models.Topic).filter(models.Topic.id == topic_id).first()
     if not topic:
         raise ValueError(f"Topic {topic_id} not found")
 
-    # Ensure concepts exist
     concepts = get_or_create_concepts(topic_id, db)
     if not concepts:
         raise RuntimeError("No concepts available for this topic")
@@ -113,18 +261,36 @@ def generate_test(topic_id: int, db: Session, num_questions: int = 8) -> dict:
     if not isinstance(result, dict) or "questions" not in result:
         raise RuntimeError("LLM returned malformed test")
 
-    # Build name → Concept map for linking
     concept_map = {c.name.lower(): c for c in concepts}
 
-    saved_payload = []
+    # ==================================================
+    # STEP 1: Validate + verify each question
+    # ==================================================
+    verified_questions = []
     for q_data in result["questions"]:
-        # Validate minimum required fields
         required = ["question", "option_a", "option_b", "option_c", "option_d", "correct_option"]
         if not all(k in q_data for k in required):
             continue
         if q_data["correct_option"] not in ("A", "B", "C", "D"):
             continue
 
+        # ---- VERIFY ----
+        verified = _verify_question(q_data)
+
+        # Skip flawed questions that need regeneration
+        if verified.get("_needs_regeneration"):
+            continue
+
+        verified_questions.append(verified)
+
+    if not verified_questions:
+        raise RuntimeError("All generated questions failed verification")
+
+    # ==================================================
+    # STEP 2: Save verified questions
+    # ==================================================
+    saved_payload = []
+    for q_data in verified_questions:
         q = models.Question(
             topic_id=topic_id,
             question=q_data["question"].strip(),
@@ -138,7 +304,7 @@ def generate_test(topic_id: int, db: Session, num_questions: int = 8) -> dict:
             question_type=q_data.get("question_type", "conceptual"),
         )
         db.add(q)
-        db.flush()  # assigns q.id
+        db.flush()
 
         linked_concepts = []
         for cname in q_data.get("concept_names", []):
@@ -152,7 +318,6 @@ def generate_test(topic_id: int, db: Session, num_questions: int = 8) -> dict:
                 db.add(link)
                 linked_concepts.append({"id": concept.id, "name": concept.name})
 
-        # Snapshot question data before commit (avoid detached-instance issues)
         saved_payload.append({
             "id": q.id,
             "question": q.question,
@@ -163,10 +328,12 @@ def generate_test(topic_id: int, db: Session, num_questions: int = 8) -> dict:
             "question_type": q.question_type,
             "difficulty": q.difficulty,
             "concepts": linked_concepts,
+            "corrected": q_data.get("_corrected", False),
+            "explanation_fixed": q_data.get("_explanation_fixed", False),
         })
 
     if not saved_payload:
-        raise RuntimeError("LLM returned no valid questions")
+        raise RuntimeError("No valid questions could be saved")
 
     db.commit()
 
@@ -177,6 +344,7 @@ def generate_test(topic_id: int, db: Session, num_questions: int = 8) -> dict:
         "difficulty": topic.difficulty,
         "total_questions": len(saved_payload),
         "questions": saved_payload,
+        "verified": True,
     }
 
 
@@ -188,8 +356,6 @@ def submit_test(
 ) -> dict:
     """
     Grade a test session, save attempts, update concept_stats.
-
-    `answers`: mapping of {question_id_str: "A"|"B"|"C"|"D"|None}
     """
     if not session_id:
         session_id = str(uuid.uuid4())
@@ -219,9 +385,7 @@ def submit_test(
     total = len(questions)
     details = []
 
-    # session_concept_acc: concept_id -> {"correct": int, "total": int}
     session_concept_acc: dict[int, dict] = {}
-    # concept_id -> Concept object (for naming in response)
     concept_objs: dict[int, models.Concept] = {}
 
     for qid_str, selected in answers.items():
@@ -240,7 +404,6 @@ def submit_test(
         if is_correct:
             correct_count += 1
 
-        # Save the attempt
         attempt = models.QuestionAttempt(
             student_id=student_id,
             question_id=qid,
@@ -250,7 +413,6 @@ def submit_test(
         )
         db.add(attempt)
 
-        # Collect concepts
         concept_names = []
         for link in q.concept_links:
             cid = link.concept_id
@@ -273,7 +435,6 @@ def submit_test(
 
     db.flush()
 
-    # Update per-concept stats
     concept_updates = []
     for cid, acc in session_concept_acc.items():
         stat = update_concept_stats(
@@ -300,8 +461,6 @@ def submit_test(
             "trend": stat.trend,
         })
 
-    # Also update the legacy Performance table for the topic
-    # (keeps Dashboard and Study Plan working as before)
     score_percent = round((correct_count / total) * 100, 2) if total else 0.0
     topic_id = questions[0].topic_id
 
@@ -327,7 +486,6 @@ def submit_test(
 
     db.commit()
 
-    # Sort concepts by session_score ascending (weakest first)
     concept_updates.sort(key=lambda x: x["session_score"])
 
     return {

@@ -3,6 +3,8 @@ import { askAITutor } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import "./AITutor.css";
 
+const HISTORY_LIMIT = 6; // last 3 user-assistant exchanges
+
 export default function AITutor() {
   const { user } = useAuth();
   const [messages, setMessages] = useState([]);
@@ -17,7 +19,12 @@ export default function AITutor() {
 
   const handleSend = async () => {
     const q = input.trim();
-    if (!q || !user?.student_id) return;
+    if (!q || !user?.student_id || loading) return;
+
+    // Build history BEFORE adding the current user message
+    const history = messages
+      .slice(-HISTORY_LIMIT)
+      .map((m) => ({ role: m.role, content: m.content }));
 
     setError("");
     setInput("");
@@ -25,19 +32,17 @@ export default function AITutor() {
     setLoading(true);
 
     try {
-      const res = await askAITutor(user.student_id, q);
+      const res = await askAITutor(user.student_id, q, history);
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
           content: res.data.answer,
-          context: res.data.context_concepts,
         },
       ]);
     } catch (err) {
       setError(
-        err.response?.data?.detail ||
-          "AI Tutor failed. Check the backend logs."
+        err.response?.data?.detail || "AI Tutor failed. Check the backend logs."
       );
     } finally {
       setLoading(false);
@@ -51,11 +56,10 @@ export default function AITutor() {
     }
   };
 
-  const examplePrompts = [
-    "Explain overfitting in simple terms",
-    "Give me an example of DBMS normalization",
-    "Quiz me on classification",
-  ];
+  const clearChat = () => {
+    setMessages([]);
+    setError("");
+  };
 
   return (
     <div className="tutor-page">
@@ -63,44 +67,25 @@ export default function AITutor() {
         <div>
           <h1 className="tutor-title">🤖 AI Tutor</h1>
           <p className="tutor-subtitle">
-            Ask anything about your studies. The tutor knows your weak concepts.
+            Ask anything. I remember our conversation.
           </p>
         </div>
+        {messages.length > 0 && (
+          <button className="tutor-clear-btn" onClick={clearChat}>
+            Clear chat
+          </button>
+        )}
       </div>
 
       {error && <div className="tutor-error">{error}</div>}
 
       <div className="chat-window">
-        {messages.length === 0 && (
-          <div className="empty-chat">
-            <p className="empty-title">
-              Ask anything about your studies. The tutor knows your weak concepts.
-            </p>
-            <div className="prompts">
-              {examplePrompts.map((p) => (
-                <button
-                  key={p}
-                  className="prompt-chip"
-                  onClick={() => setInput(p)}
-                >
-                  {p}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
         {messages.map((m, i) => (
           <div key={i} className={`bubble ${m.role}`}>
             <div className="bubble-label">
               {m.role === "user" ? "You" : "🤖 AI Tutor"}
             </div>
             <div className="bubble-content">{m.content}</div>
-            {m.role === "assistant" && m.context?.length > 0 && (
-              <div className="context-note">
-                🧠 Aware of your weak concepts: {m.context.join(", ")}
-              </div>
-            )}
           </div>
         ))}
 
@@ -126,10 +111,10 @@ export default function AITutor() {
           onKeyDown={handleKeyDown}
           rows={1}
         />
-      <button onClick={handleSend} disabled={loading || !input.trim()}>
-      Send
-      </button>
-    </div>
+        <button onClick={handleSend} disabled={loading || !input.trim()}>
+          Send
+        </button>
+      </div>
     </div>
   );
 }
