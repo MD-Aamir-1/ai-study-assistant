@@ -1174,6 +1174,7 @@ def clear_search_history(student_id: int, db: Session = Depends(get_db)):
 # ==================================================
 from services.file_service import extract_text
 from ai_tutor import get_client
+import re as _re
 
 
 @app.post("/files/extract")
@@ -1203,25 +1204,37 @@ async def extract_file_content(file: UploadFile = File(...)):
     }
 
 
-LEARN_SYSTEM_PROMPT = """You are a senior educator who writes comprehensive, GFG-quality educational content.
+# ==================================================
+# ADAPTIVE PROMPT — follow user instruction EXACTLY
+# ==================================================
+LEARN_SYSTEM_PROMPT = """You are a helpful AI Study Tutor.
 
-CORE PRINCIPLES:
-1. NEVER REFUSE. Always produce substantive, helpful educational content.
-2. Treat the uploaded text as REFERENCE MATERIAL, not as your only allowed knowledge.
-3. If the reference is detailed, ground your explanations in it.
-4. If the reference is sparse, use your general knowledge.
-5. If the reference contains a question, answer it thoroughly with reasoning.
+The user has uploaded a file and given you an instruction.
 
-DEPTH REQUIREMENTS:
-- Write 2000-4000 words of RICH, well-structured markdown
-- Multiple paragraphs per section
-- At least 2 concrete examples with real numbers
-- At least 1 comparison table
-- Code snippets if programming-related
-- Formulas using $$...$$ on their own line
-- Explain WHY, not just WHAT
+═══════════════════════════════════════════════
+CRITICAL: FOLLOW THE USER'S INSTRUCTION EXACTLY
+═══════════════════════════════════════════════
 
-STRUCTURE:
+- If the user says "give me applications" → return ONLY the applications. Nothing else.
+- If the user says "summarize this" → return ONLY the summary. Nothing else.
+- If the user says "explain in simple terms" → return ONLY the simple explanation.
+- If the user says "give me 5 practice questions" → return ONLY 5 questions.
+- If the user says "write a detailed tutorial" → produce a full structured tutorial.
+- If the user says "answer this question" → return ONLY the answer.
+
+NEVER pad the response with sections the user did NOT ask for.
+NEVER force the full tutorial structure unless the user explicitly asked for it.
+Match the LENGTH of the response to what the instruction implies.
+Short instruction (e.g., "list applications") → short response.
+Long instruction (e.g., "write a detailed tutorial") → long response.
+
+═══════════════════════════════════════════════
+WHEN THE USER ASKS FOR A FULL TUTORIAL
+═══════════════════════════════════════════════
+
+Only use this structure when the user explicitly asks for a "tutorial",
+"detailed explanation", "complete guide", or "full overview":
+
 # <Topic Title>
 <2-3 sentence intro>
 ## What Is It?
@@ -1237,18 +1250,97 @@ STRUCTURE:
 ## Key Takeaways
 ## Practice / Further Study
 
-FORMATTING:
-- Markdown headings (##, ###)
-- **bold** for key terms
-- `code` for identifiers
-- $$...$$ for display math
-- - or 1. for lists
-- Tables when comparing
+When producing a full tutorial, target 2000-4000 words.
 
-Never say "the source doesn't provide enough information". Instead, teach what you know.
+═══════════════════════════════════════════════
+FORMATTING RULES (STRICT)
+═══════════════════════════════════════════════
 
-End with one short follow-up question.
+1. NO HTML TAGS AT ALL.
+   Never write <a name="...">...</a>, <div>, <span>, <br>, <p>, or any HTML.
+   Plain markdown only.
+
+2. MATH — use ONLY these forms:
+   - Inline short formulas: `y = mx + b` (inside backticks)
+   - Display formulas: $$formula$$ on its OWN line
+   - NEVER use \\( ... \\) inline math
+   - NEVER use \\[ ... \\] display math
+   - NEVER write \\mathbf{...} or \\text{...} around single letters
+   - Keep formulas simple — avoid complex LaTeX unless the topic requires it
+
+3. ACRONYMS — always write them correctly:
+   - AI (capital A, capital I) — NEVER "Al" (capital A, lowercase L)
+   - API, ML, DL, UI, DB, SQL, HTTP, REST
+
+4. TABLES — keep them SMALL:
+   - Maximum 6 rows per table
+   - Maximum 4 columns per table
+   - Every cell must be filled
+   - Never build a table with hundreds of rows
+
+5. NO DUPLICATED sections. Never repeat a heading.
+
+6. NO HTML ENTITIES. Write & (not &amp;), " (not &quot;), < (not &lt;).
+
+7. No section anchors, no table of contents markers, no HTML attributes.
+
+8. Never say "the source doesn't provide enough information". Teach what you know.
+
+End with one short follow-up question ONLY when producing a full tutorial.
 """
+
+
+def _clean_learn_output(text: str) -> str:
+    """
+    Post-process the LLM output to fix common issues:
+    - Remove HTML anchor tags
+    - Convert \\(...\\) → `...` and \\[...\\] → $$...$$
+    - Fix "Al" → "AI"
+    - Decode HTML entities
+    - Fix mangled tab-escapes in code
+    """
+    if not text:
+        return text
+
+    s = text
+
+    # 1. Remove <a name="..."> </a> anchors
+    s = _re.sub(r"<a\s+name=\"[^\"]*\"\s*>\s*</a>", "", s)
+    s = _re.sub(r"<a\s+name='[^']*'\s*>\s*</a>", "", s)
+
+    # 2. Remove any remaining HTML tags (keep content)
+    s = _re.sub(r"<[^>]+>", "", s)
+
+    # 3. Convert \( ... \) inline math → ` ... `
+    s = _re.sub(r"\\\((.+?)\\\)", r"`\1`", s)
+
+    # 4. Convert \[ ... \] display math → $$ ... $$
+    s = _re.sub(r"\\\[(.+?)\\\]", r"\n$$\1$$\n", s, flags=_re.DOTALL)
+
+    # 5. Decode HTML entities
+    s = s.replace("&amp;amp;", "&")
+    s = s.replace("&amp;", "&")
+    s = s.replace("&quot;", '"')
+    s = s.replace("&#x27;", "'")
+    s = s.replace("&#39;", "'")
+    s = s.replace("&lt;", "<")
+    s = s.replace("&gt;", ">")
+    s = s.replace("&nbsp;", " ")
+
+    # 6. Fix "Al" (A + lowercase L) → "AI" only when it's the whole word
+    #    (avoid accidentally touching words like "Algorithm" → check word boundary)
+    s = _re.sub(r"\bAl\b", "AI", s)
+
+    # 7. Fix mangled \t escape patterns in code (rare but possible)
+    #    Example: "\tAI_System" → "AI_System"
+    s = s.replace("\tAI_System", "AI_System")
+    s = s.replace("\tInput Data", "Input Data")
+    s = s.replace("\tModel Parameters", "Model Parameters")
+
+    # 8. Collapse any triple+ blank lines
+    s = _re.sub(r"\n{4,}", "\n\n\n", s)
+
+    return s.strip()
 
 
 class LearnFromTextRequest(BaseModel):
@@ -1276,7 +1368,8 @@ def learn_from_text(req: LearnFromTextRequest, db: Session = Depends(get_db)):
     user_message = (
         f"REFERENCE TEXT FROM UPLOADED FILE:\n\"\"\"\n{text}\n\"\"\"\n\n"
         f"USER'S INSTRUCTION: {instruction}\n\n"
-        f"Write a COMPREHENSIVE, GFG-QUALITY response of 2000-4000 words."
+        f"Follow the instruction exactly. Do not add extra sections the user "
+        f"did not ask for."
     )
 
     # Inject language instruction if user is logged in
@@ -1298,9 +1391,12 @@ def learn_from_text(req: LearnFromTextRequest, db: Session = Depends(get_db)):
             temperature=0.6,
             max_tokens=8000,
         )
-        answer = response.choices[0].message.content.strip()
+        raw_answer = response.choices[0].message.content.strip()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
+
+    # Post-process to clean up HTML anchors, math, entities, "Al"
+    answer = _clean_learn_output(raw_answer)
 
     return {
         "instruction": instruction,

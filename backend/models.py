@@ -353,5 +353,5 @@ class SearchHistory(Base):
     query = Column(String, nullable=False)
     searched_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    student = relationship("Student")
+    student = relationship("Student", overlaps="search_history")
     topic = relationship("Topic")

@@ -457,3 +457,25 @@
     gap: 8px;
   }
 }
+/* ---------- Custom prompt block ---------- */
+.custom-prompt-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 6px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--border);
+}
+
+.or-divider {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--primary);
+  letter-spacing: 0.3px;
+}
+
+.quick-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
