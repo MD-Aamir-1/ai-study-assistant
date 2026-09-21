@@ -1,0 +1,354 @@
+.msg-row {
+  display: flex;
+  padding: 8px 0;
+}
+
+.msg-user {
+  justify-content: flex-end;
+}
+
+.msg-assistant {
+  justify-content: flex-start;
+}
+
+.msg-bubble {
+  max-width: min(780px, 92%);
+  border-radius: 16px;
+  padding: 14px 18px;
+  position: relative;
+  transition: background 0.15s;
+}
+
+.msg-user .msg-bubble {
+  background: var(--primary);
+  color: white;
+}
+
+.msg-assistant .msg-bubble {
+  background: transparent;
+  color: var(--text);
+  padding-left: 0;
+}
+
+.msg-user-text {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+/* ---------- Markdown content ---------- */
+.msg-content {
+  font-size: 14.5px;
+  line-height: 1.7;
+  color: var(--text);
+  word-wrap: break-word;
+}
+
+.msg-content > *:first-child { margin-top: 0; }
+.msg-content > *:last-child { margin-bottom: 0; }
+
+.msg-content h1,
+.msg-content h2,
+.msg-content h3,
+.msg-content h4 {
+  margin: 18px 0 8px;
+  color: var(--text);
+  line-height: 1.3;
+  font-weight: 700;
+}
+
+.msg-content h1 { font-size: 20px; }
+.msg-content h2 { font-size: 18px; }
+.msg-content h3 { font-size: 16px; }
+.msg-content h4 { font-size: 15px; }
+
+.msg-content p {
+  margin: 0 0 12px;
+}
+
+.msg-content ul,
+.msg-content ol {
+  margin: 0 0 12px;
+  padding-left: 24px;
+}
+
+.msg-content li {
+  margin-bottom: 4px;
+}
+
+.msg-content blockquote {
+  border-left: 3px solid var(--primary);
+  padding: 6px 14px;
+  margin: 12px 0;
+  color: var(--text-muted);
+  background: var(--surface-alt);
+  border-radius: 4px;
+}
+
+.msg-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+  font-size: 13.5px;
+}
+
+.msg-content th,
+.msg-content td {
+  border: 1px solid var(--border);
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.msg-content th {
+  background: var(--surface-alt);
+  font-weight: 700;
+}
+
+.msg-content a {
+  color: var(--primary);
+  text-decoration: underline;
+}
+
+.inline-code {
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 13px;
+  color: var(--primary);
+}
+
+/* ---------- Code blocks ---------- */
+.code-block {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 10px;
+  margin: 12px 0;
+  overflow: hidden;
+}
+
+.code-block-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 14px;
+  background: #161b22;
+  border-bottom: 1px solid #30363d;
+}
+
+.code-block-lang {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: #8b949e;
+}
+
+.code-block-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.code-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: transparent;
+  color: #8b949e;
+  border: 1px solid #30363d;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+
+.code-action-btn:hover {
+  color: #e6edf3;
+  border-color: #8b949e;
+}
+
+.code-block-body {
+  margin: 0;
+  padding: 14px 16px;
+  overflow-x: auto;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  background: #0d1117;
+}
+
+.code-block-body.collapsed {
+  max-height: 320px;
+  overflow-y: hidden;
+  position: relative;
+}
+
+.code-block-body.collapsed::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 60px;
+  background: linear-gradient(to bottom, transparent, #0d1117);
+  pointer-events: none;
+}
+
+.code-block-body code {
+  font-family: inherit;
+  color: #e6edf3;
+  background: transparent;
+  padding: 0;
+  border: none;
+}
+
+/* ---------- Typing indicator ---------- */
+.msg-typing {
+  display: flex;
+  gap: 5px;
+  padding: 6px 0;
+}
+
+.msg-typing span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--primary);
+  animation: typing 1.3s infinite;
+}
+
+.msg-typing span:nth-child(2) { animation-delay: 0.18s; }
+.msg-typing span:nth-child(3) { animation-delay: 0.36s; }
+
+@keyframes typing {
+  0%, 60%, 100% { opacity: 0.25; transform: scale(0.85); }
+  30% { opacity: 1; transform: scale(1); }
+}
+
+/* ---------- Message actions ---------- */
+.msg-actions {
+  display: flex;
+  gap: 2px;
+  margin-top: 8px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.msg-bubble:hover .msg-actions {
+  opacity: 1;
+}
+
+.msg-user .msg-actions {
+  justify-content: flex-end;
+}
+
+.msg-action {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  padding: 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.msg-user .msg-action {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.msg-action:hover {
+  background: var(--surface-alt);
+  color: var(--text);
+}
+
+.msg-user .msg-action:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+}
+
+.msg-action.active {
+  color: var(--success);
+}
+
+.msg-action.active.down {
+  color: var(--danger);
+}
+
+/* ---------- Edit mode ---------- */
+.msg-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.msg-edit textarea {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  font-family: inherit;
+  font-size: 14px;
+  resize: vertical;
+  outline: none;
+}
+
+.msg-edit textarea::placeholder {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.msg-edit-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.btn-xs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: transparent;
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.btn-xs:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.btn-xs-primary {
+  background: white;
+  color: var(--primary);
+  border-color: white;
+}
+
+.btn-xs-primary:hover {
+  background: rgba(255, 255, 255, 0.9);
+}
+
+/* ---------- Mobile ---------- */
+@media (max-width: 900px) {
+  .msg-bubble {
+    max-width: 95%;
+  }
+
+  .msg-actions {
+    opacity: 1;
+  }
+}

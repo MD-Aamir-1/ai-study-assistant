@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from datetime import date as date_cls, timedelta
+from datetime import date as date_cls, timedelta, datetime
 from typing import Optional, Dict
 
 from database import engine, Base, SessionLocal
@@ -1875,3 +1875,363 @@ def analytics_timeline(student_id: int, days: int = 30, db: Session = Depends(ge
         "concepts_progress": concepts_progress,
         "topic_breakdown": topic_breakdown,
     }
+# ==================================================
+# NOVAAI CHAT
+# ==================================================
+from fastapi.responses import StreamingResponse
+from services import chat_service
+
+
+class ConversationCreate(BaseModel):
+    student_id: int
+    title: str = "New chat"
+    model: str = chat_service.DEFAULT_MODEL
+
+
+class ConversationUpdate(BaseModel):
+    title: Optional[str] = None
+    model: Optional[str] = None
+    pinned: Optional[bool] = None
+    archived: Optional[bool] = None
+
+
+class ChatSendRequest(BaseModel):
+    student_id: int
+    content: str
+    model: Optional[str] = None
+
+
+class MessageFeedback(BaseModel):
+    student_id: int
+    feedback: str  # "up" | "down" | ""
+
+
+@app.get("/chat/models")
+def chat_models():
+    return {"models": chat_service.list_models(), "default": chat_service.DEFAULT_MODEL}
+
+
+# ---------- List conversations ----------
+@app.get("/chat/conversations")
+def list_conversations(student_id: int, q: str = "", db: Session = Depends(get_db)):
+    query = db.query(models.Conversation).filter(
+        models.Conversation.student_id == student_id,
+        models.Conversation.archived == False,  # noqa: E712
+    )
+
+    if q.strip():
+        # Search title OR messages
+        like = f"%{q.strip()}%"
+        from sqlalchemy import or_
+        query = query.outerjoin(
+            models.ChatMessage,
+            models.ChatMessage.conversation_id == models.Conversation.id,
+        ).filter(
+            or_(
+                models.Conversation.title.ilike(like),
+                models.ChatMessage.content.ilike(like),
+            )
+        ).distinct()
+
+    convs = query.order_by(
+        models.Conversation.pinned.desc(),
+        models.Conversation.updated_at.desc(),
+    ).limit(100).all()
+
+    result = []
+    for c in convs:
+        last = (
+            db.query(models.ChatMessage)
+            .filter(models.ChatMessage.conversation_id == c.id)
+            .order_by(models.ChatMessage.id.desc())
+            .first()
+        )
+        preview = ""
+        if last:
+            preview = last.content[:80].replace("\n", " ")
+
+        result.append({
+            "id": c.id,
+            "title": c.title,
+            "model": c.model,
+            "pinned": c.pinned,
+            "preview": preview,
+            "created_at": c.created_at.isoformat() if c.created_at else None,
+            "updated_at": c.updated_at.isoformat() if c.updated_at else None,
+        })
+
+    return {"conversations": result}
+
+
+# ---------- Create conversation ----------
+@app.post("/chat/conversations")
+def create_conversation(payload: ConversationCreate, db: Session = Depends(get_db)):
+    student = db.query(models.Student).filter(models.Student.id == payload.student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    conv = models.Conversation(
+        student_id=payload.student_id,
+        title=payload.title,
+        model=payload.model,
+    )
+    db.add(conv)
+    db.commit()
+    db.refresh(conv)
+
+    return {
+        "id": conv.id,
+        "title": conv.title,
+        "model": conv.model,
+        "created_at": conv.created_at.isoformat() if conv.created_at else None,
+    }
+
+
+# ---------- Get one conversation with messages ----------
+@app.get("/chat/conversations/{conv_id}")
+def get_conversation(conv_id: int, student_id: int, db: Session = Depends(get_db)):
+    conv = db.query(models.Conversation).filter(
+        models.Conversation.id == conv_id,
+        models.Conversation.student_id == student_id,
+    ).first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    msgs = (
+        db.query(models.ChatMessage)
+        .filter(models.ChatMessage.conversation_id == conv_id)
+        .order_by(models.ChatMessage.id.asc())
+        .all()
+    )
+
+    return {
+        "id": conv.id,
+        "title": conv.title,
+        "model": conv.model,
+        "pinned": conv.pinned,
+        "created_at": conv.created_at.isoformat() if conv.created_at else None,
+        "messages": [
+            {
+                "id": m.id,
+                "role": m.role,
+                "content": m.content,
+                "model": m.model,
+                "feedback": m.feedback,
+                "created_at": m.created_at.isoformat() if m.created_at else None,
+            }
+            for m in msgs
+        ],
+    }
+
+
+# ---------- Update conversation ----------
+@app.patch("/chat/conversations/{conv_id}")
+def update_conversation(
+    conv_id: int,
+    student_id: int,
+    updates: ConversationUpdate,
+    db: Session = Depends(get_db),
+):
+    conv = db.query(models.Conversation).filter(
+        models.Conversation.id == conv_id,
+        models.Conversation.student_id == student_id,
+    ).first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    if updates.title is not None:
+        conv.title = updates.title[:120]
+    if updates.model is not None:
+        conv.model = updates.model
+    if updates.pinned is not None:
+        conv.pinned = updates.pinned
+    if updates.archived is not None:
+        conv.archived = updates.archived
+
+    db.commit()
+    return {"ok": True}
+
+
+# ---------- Delete conversation ----------
+@app.delete("/chat/conversations/{conv_id}")
+def delete_conversation(conv_id: int, student_id: int, db: Session = Depends(get_db)):
+    conv = db.query(models.Conversation).filter(
+        models.Conversation.id == conv_id,
+        models.Conversation.student_id == student_id,
+    ).first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    db.delete(conv)
+    db.commit()
+    return {"ok": True}
+
+
+# ---------- Feedback on a message ----------
+@app.patch("/chat/messages/{msg_id}/feedback")
+def message_feedback(
+    msg_id: int,
+    payload: MessageFeedback,
+    db: Session = Depends(get_db),
+):
+    msg = db.query(models.ChatMessage).filter(models.ChatMessage.id == msg_id).first()
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    # Make sure this message belongs to the given student
+    conv = db.query(models.Conversation).filter(
+        models.Conversation.id == msg.conversation_id,
+        models.Conversation.student_id == payload.student_id,
+    ).first()
+    if not conv:
+        raise HTTPException(status_code=403, detail="Not allowed")
+
+    if payload.feedback not in ("", "up", "down"):
+        raise HTTPException(status_code=400, detail="Invalid feedback")
+
+    msg.feedback = payload.feedback
+    db.commit()
+    return {"ok": True, "feedback": msg.feedback}
+
+
+# ---------- Delete a message ----------
+@app.delete("/chat/messages/{msg_id}")
+def delete_message(msg_id: int, student_id: int, db: Session = Depends(get_db)):
+    msg = db.query(models.ChatMessage).filter(models.ChatMessage.id == msg_id).first()
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    conv = db.query(models.Conversation).filter(
+        models.Conversation.id == msg.conversation_id,
+        models.Conversation.student_id == student_id,
+    ).first()
+    if not conv:
+        raise HTTPException(status_code=403, detail="Not allowed")
+
+    db.delete(msg)
+    db.commit()
+    return {"ok": True}
+
+
+# ==================================================
+# STREAMING ENDPOINT
+# ==================================================
+def _sse(payload: dict) -> str:
+    return f"data: {json.dumps(payload)}\n\n"
+
+
+@app.post("/chat/conversations/{conv_id}/stream")
+def stream_chat(
+    conv_id: int,
+    payload: ChatSendRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Sends a message and streams the AI response back via SSE.
+    """
+    conv = db.query(models.Conversation).filter(
+        models.Conversation.id == conv_id,
+        models.Conversation.student_id == payload.student_id,
+    ).first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    user_text = (payload.content or "").strip()
+    if not user_text:
+        raise HTTPException(status_code=400, detail="Empty message")
+
+    model_id = payload.model or conv.model or chat_service.DEFAULT_MODEL
+
+    # ---------- Save user message ----------
+    user_msg = models.ChatMessage(
+        conversation_id=conv.id,
+        role="user",
+        content=user_text,
+        model=model_id,
+    )
+    db.add(user_msg)
+
+    # ---------- Auto-title if this is the first message ----------
+    existing_count = (
+        db.query(models.ChatMessage)
+        .filter(models.ChatMessage.conversation_id == conv.id)
+        .count()
+    )
+    if existing_count == 0:
+        try:
+            new_title = chat_service.generate_title(user_text)
+            conv.title = new_title
+        except Exception:
+            pass
+
+    # bump updated_at
+    conv.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(user_msg)
+
+    # ---------- Fetch history (exclude the just-saved message from prior history) ----------
+    history = (
+        db.query(models.ChatMessage)
+        .filter(
+            models.ChatMessage.conversation_id == conv.id,
+            models.ChatMessage.id < user_msg.id,
+        )
+        .order_by(models.ChatMessage.id.asc())
+        .all()
+    )
+
+    # Build messages for the LLM
+    llm_messages = chat_service.build_messages(conv, history, user_text)
+
+    # ---------- Stream ----------
+    def event_gen():
+        full_response = ""
+        assistant_msg_id = None
+
+        try:
+            yield _sse({"type": "user_message_id", "id": user_msg.id})
+            yield _sse({"type": "title", "title": conv.title})
+
+            for delta in chat_service.stream_completion(model_id, llm_messages):
+                full_response += delta
+                yield _sse({"type": "delta", "content": delta})
+
+            # Save assistant message with a fresh session (main db might be closed)
+            from database import SessionLocal as _SL
+            fresh = _SL()
+            try:
+                assistant_msg = models.ChatMessage(
+                    conversation_id=conv.id,
+                    role="assistant",
+                    content=full_response,
+                    model=model_id,
+                )
+                fresh.add(assistant_msg)
+                # Update conversation timestamp
+                _conv = fresh.query(models.Conversation).filter(
+                    models.Conversation.id == conv.id
+                ).first()
+                if _conv:
+                    _conv.updated_at = datetime.utcnow()
+                fresh.commit()
+                fresh.refresh(assistant_msg)
+                assistant_msg_id = assistant_msg.id
+            finally:
+                fresh.close()
+
+            yield _sse({"type": "done", "message_id": assistant_msg_id})
+
+        except Exception as e:
+            yield _sse({"type": "error", "message": str(e)})
+
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )

@@ -111,5 +111,83 @@ export const generateFlashcards = (topicId, numCards = 10, force = false) =>
 // ---------- ANALYTICS ----------
 export const getAnalyticsTimeline = (studentId, days = 30) =>
   API.get(`/analytics/timeline/${studentId}?days=${days}`);
+// ---------- NOVAAI CHAT ----------
+export const getChatModels = () => API.get("/chat/models");
 
+export const listConversations = (studentId, q = "") =>
+  API.get(`/chat/conversations?student_id=${studentId}&q=${encodeURIComponent(q)}`);
+
+export const createConversation = (studentId, title = "New chat", model = "nova-balanced") =>
+  API.post("/chat/conversations", { student_id: studentId, title, model });
+
+export const getConversation = (convId, studentId) =>
+  API.get(`/chat/conversations/${convId}?student_id=${studentId}`);
+
+export const updateConversation = (convId, studentId, updates) =>
+  API.patch(`/chat/conversations/${convId}?student_id=${studentId}`, updates);
+
+export const deleteConversation = (convId, studentId) =>
+  API.delete(`/chat/conversations/${convId}?student_id=${studentId}`);
+
+export const sendMessageFeedback = (msgId, studentId, feedback) =>
+  API.patch(`/chat/messages/${msgId}/feedback`, {
+    student_id: studentId,
+    feedback,
+  });
+
+export const deleteMessage = (msgId, studentId) =>
+  API.delete(`/chat/messages/${msgId}?student_id=${studentId}`);
+
+/** Stream a chat message via fetch + SSE. Returns an abort controller. */
+export const streamChatMessage = (
+  convId,
+  studentId,
+  content,
+  model,
+  handlers,
+  signal
+) => {
+  const API_BASE =
+    import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+
+  return fetch(`${API_BASE}/chat/conversations/${convId}/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    signal,
+    body: JSON.stringify({
+      student_id: studentId,
+      content,
+      model,
+    }),
+  }).then(async (res) => {
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text || `HTTP ${res.status}`);
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const parts = buffer.split("\n\n");
+      buffer = parts.pop();
+
+      for (const part of parts) {
+        if (!part.startsWith("data: ")) continue;
+        const data = part.slice(6).trim();
+        if (data === "[DONE]") continue;
+        try {
+          const json = JSON.parse(data);
+          handlers?.[json.type]?.(json);
+        } catch {
+          // ignore malformed chunk
+        }
+      }
+    }
+  });
+};
 export default API;

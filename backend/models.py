@@ -370,3 +370,41 @@ class FlashcardSet(Base):
     )
 
     topic = relationship("Topic")
+# ==================================================
+# CHAT (NovaAI)
+# ==================================================
+class Conversation(Base):
+    __tablename__ = "conversations"
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("students.id"), nullable=False, index=True)
+    title = Column(String, default="New chat")
+    model = Column(String, default="nova-balanced")
+    pinned = Column(Boolean, default=False)
+    archived = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    messages = relationship(
+        "ChatMessage",
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="ChatMessage.id",
+    )
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+    id = Column(Integer, primary_key=True, index=True)
+    conversation_id = Column(
+        Integer, ForeignKey("conversations.id"), nullable=False, index=True
+    )
+    role = Column(String, nullable=False)  # "user" | "assistant" | "system"
+    content = Column(Text, nullable=False, default="")
+    model = Column(String, default="")
+    feedback = Column(String, default="")   # "" | "up" | "down"
+    metadata_json = Column(Text, default="{}")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    conversation = relationship("Conversation", back_populates="messages")
