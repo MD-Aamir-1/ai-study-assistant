@@ -1,6 +1,5 @@
 """
-AI Tutor: concise, app-aware, memory-enabled, web-aware.
-Uses Groq with conversation history + optional web search.
+AI Tutor: concise, app-aware, memory-enabled, web-aware, language-aware.
 """
 
 import os
@@ -10,6 +9,7 @@ from groq import Groq
 
 from services.web_search_service import needs_web_search, search_web
 from services.language_service import language_instruction
+
 load_dotenv()
 
 _client = None
@@ -27,9 +27,6 @@ def get_client():
     return _client
 
 
-# ==================================================
-# SYSTEM PROMPT
-# ==================================================
 SYSTEM_PROMPT = """You are a friendly, concise AI Study Tutor inside the "AI Study Assistant" app.
 
 ═══════════════════════════════════════════════
@@ -73,21 +70,19 @@ USING WEB RESULTS (when provided)
 If you see a "LIVE WEB RESULTS" section below, you may use those results to
 answer. Guidelines:
 - Prefer web results over your training knowledge for recent events.
-- Cite sources inline as [1], [2], etc. matching the numbered list.
+- Cite sources inline as [1], [2], etc.
 - If web results contradict your knowledge, trust the web results.
-- If web results are irrelevant to the question, ignore them.
+- If web results are irrelevant, ignore them.
 - If you genuinely don't know, say so.
 
 ═══════════════════════════════════════════════
-APP KNOWLEDGE (only these pages exist)
+APP KNOWLEDGE
 ═══════════════════════════════════════════════
 
 Sidebar pages: Dashboard, Search, Upload & Learn, Test, Knowledge Gaps,
 Recommendations, AI Tutor, Settings.
 
 Never invent buttons or features not in this list.
-The "Take Test" button lives on the lesson page (after searching a topic),
-NOT on the Dashboard.
 """
 
 
@@ -157,12 +152,13 @@ def ask_tutor(
     question: str,
     weak_concepts: list[dict],
     history: list[dict] | None = None,
+    language: str = "en",
 ) -> dict:
     """
     Returns:
         {
             "answer": str,
-            "sources": [ {title, url, snippet}, ... ]  # empty if no web search
+            "sources": [ {title, url, snippet}, ... ]
         }
     """
     client = get_client()
@@ -174,7 +170,7 @@ def ask_tutor(
 
     messages = [{"role": "system", "content": system_prompt}]
 
-    # ---------- Weak concepts (soft) ----------
+    # ---------- Weak concepts (soft background) ----------
     if weak_concepts:
         lines = [
             f"- {c['concept_name']} ({c.get('score', 0)}%)"
@@ -223,27 +219,113 @@ def ask_tutor(
     raw = response.choices[0].message.content.strip()
     cleaned = _strip_markdown_spam(raw)
 
-    return {
-        "answer": cleaned,
-        "sources": sources,
-    }
+    return {"answer": cleaned, "sources": sources}
 
 
 def _strip_markdown_spam(text: str) -> str:
-    """Remove leftover **, ##, backticks if the LLM still emits them."""
     if not text:
         return text
-
     s = text
-    # Bold: **text** → text
     s = re.sub(r"\*\*(.+?)\*\*", r"\1", s)
-    # Italic: *text* → text (careful with math)
     s = re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"\1", s)
-    # __bold__ → text
     s = re.sub(r"__(.+?)__", r"\1", s)
-    # Headers at line start
     s = re.sub(r"^#{1,6}\s+", "", s, flags=re.MULTILINE)
-    # Backticks around words
     s = re.sub(r"`([^`]+)`", r"\1", s)
-
     return s.strip()
+
+
+# ==================================================
+# LEGACY QUIZ GENERATOR
+# ==================================================
+QUIZ_GEN_PROMPT = """You are an expert educator creating multiple-choice questions to test CONCEPTUAL understanding.
+
+Generate {num} multiple-choice questions on the topic "{topic}" (subject: "{subject}") at {difficulty} difficulty level.
+
+Requirements:
+- Test CONCEPTUAL understanding, not rote memorization
+- Include application-based, reasoning, and "why/how" questions
+- Avoid trivial "what is X" definition-only questions
+- Each question must have exactly 4 options labeled A, B, C, D
+- Only ONE option must be correct
+- Distractors must be plausible but wrong
+
+Return ONLY a valid JSON array (no prose, no markdown) in this exact format:
+[
+  {{
+    "question": "Full question text here?",
+    "option_a": "First option",
+    "option_b": "Second option",
+    "option_c": "Third option",
+    "option_d": "Fourth option",
+    "correct_option": "A"
+  }}
+]
+
+The "correct_option" must be exactly one of: "A", "B", "C", "D".
+Output nothing else before or after the JSON array.
+"""
+
+
+def generate_quiz_questions(
+    topic_name: str,
+    subject_name: str,
+    difficulty: str,
+    num_questions: int = 5,
+) -> list[dict]:
+    """Legacy helper — kept for compatibility."""
+    client = get_client()
+
+    prompt = QUIZ_GEN_PROMPT.format(
+        num=num_questions,
+        topic=topic_name,
+        subject=subject_name,
+        difficulty=difficulty,
+    )
+
+    response = client.chat.completions.create(
+        model="openai/gpt-oss-120b",
+        messages=[
+            {
+                "role": "system",
+                "content": "You are a JSON-only quiz generator. Always respond with a valid JSON array. Never include markdown fences or prose.",
+            },
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.85,
+        max_tokens=3500,
+    )
+
+    import json
+    content = response.choices[0].message.content.strip()
+
+    if content.startswith("```"):
+        content = content.split("```")[1]
+        if content.lower().startswith("json"):
+            content = content[4:]
+        content = content.strip()
+
+    start = content.find("[")
+    end = content.rfind("]")
+    if start != -1 and end != -1:
+        content = content[start : end + 1]
+
+    try:
+        questions = json.loads(content)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"Failed to parse quiz JSON: {e}")
+
+    if not isinstance(questions, list) or len(questions) == 0:
+        raise RuntimeError("Groq returned no questions")
+
+    cleaned = []
+    for q in questions:
+        if not all(k in q for k in ["question", "option_a", "option_b", "option_c", "option_d", "correct_option"]):
+            continue
+        if q["correct_option"] not in ("A", "B", "C", "D"):
+            continue
+        cleaned.append(q)
+
+    if not cleaned:
+        raise RuntimeError("Groq returned malformed questions")
+
+    return cleaned

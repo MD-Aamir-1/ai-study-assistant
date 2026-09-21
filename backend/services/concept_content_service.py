@@ -1,6 +1,6 @@
 """
 Generates focused, deep-dive content for a single concept.
-Uses fast model + per-concept lock + text normalizer.
+Uses fast model + per-concept lock + text normalizer + language support.
 """
 
 import json
@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 import models
 from services.llm import call_llm_json, FAST_MODEL, DEFAULT_MODEL
 from services.language_service import get_concept_owner_language, language_instruction
+
 
 _concept_locks: dict[int, threading.Lock] = {}
 _locks_guard = threading.Lock()
@@ -23,7 +24,6 @@ def _get_concept_lock(concept_id: int) -> threading.Lock:
 
 
 def _normalize_text(value):
-    """Convert literal \\n escapes into real newlines (recursive)."""
     if isinstance(value, str):
         s = value.replace("\\\\n", "\n")
         s = s.replace("\\n", "\n")
@@ -59,63 +59,29 @@ Rules:
 - Return ONLY valid JSON
 - Use REAL newline characters in markdown text, not \\\\n escapes
 
-═══════════════════════════════════════════════
-CONCRETE EXAMPLE — MATCH THE TOPIC
-═══════════════════════════════════════════════
-
-The "concrete_example" field MUST match the nature of the concept.
-DO NOT default to code. Choose the right format:
-
-▼ **Programming concepts** (functions, loops, OOP, APIs, data structures,
-  libraries, frameworks, algorithms you'd implement):
-  → Use code with a fenced block (```python, ```cpp, etc.)
-  → Walk through the code line by line briefly.
-
-▼ **Mathematical / ML theory concepts** (hyperplane, margin, gradient,
-  bias-variance, loss function, derivative, probability):
-  → Use a NUMERICAL worked example with simple numbers.
-  → Show the setup, apply the formula step by step, arrive at a result.
-  → Use a small table if comparing values.
-  → Only use code if there is a directly applicable, standard library call —
-    and even then, keep it minimal (5 lines max) with heavy prose explanation.
-
-▼ **Abstract / conceptual ideas** (recursion, polymorphism, cache coherency,
-  deadlock, virtual memory, kernel functions, ensemble learning):
-  → Use a REAL-WORLD ANALOGY or SCENARIO.
-  → Example: "Imagine three friends sharing a single notebook..."
-  → Walk through the analogy step by step.
-  → Then map it back to the technical concept.
-
-▼ **Process / workflow concepts** (compilation, TCP handshake, scheduling):
-  → Use a STEP-BY-STEP narrated walkthrough.
-  → Numbered steps. Concrete actors (client/server, process A/B).
-  → Show what happens at each stage.
+CONCRETE EXAMPLE — MATCH THE TOPIC:
+- Programming concepts → use fenced code blocks (```python, ```cpp, etc.)
+- Mathematical/ML theory → use a NUMERICAL worked example with simple numbers
+- Abstract/conceptual ideas → use a real-world analogy or scenario
+- Process/workflow concepts → use a step-by-step narrated walkthrough
 
 RULES:
 - If the concept is NOT clearly programming-related, DO NOT use code.
 - A numerical example with 5 concrete numbers is often better than 20 lines of code.
-- A relatable real-world analogy is often better than both.
-- Match the learner's level ({difficulty}) — beginners need analogies and simple numbers, not production code.
+- Match the learner's level ({difficulty}) — beginners need analogies and simple numbers.
 
-═══════════════════════════════════════════════
-MARKDOWN FORMATTING
-═══════════════════════════════════════════════
-
+MARKDOWN FORMATTING:
 For concrete_example, use rich markdown:
 - ## <short descriptive title>
-- 1-2 sentence intro explaining what we're about to do
-- Then use ### Step 1, ### Step 2, ... OR ### Case 1, ### Case 2
-- Use **bold** for key terms, `code` for inline formulas/identifiers
-- Use $$...$$ on its own line for display math (never $...$ inline)
-- Use bullet lists sparingly
+- 1-2 sentence intro
+- ### Step 1, ### Step 2, ... OR ### Case 1, ### Case 2
+- **bold** for key terms, `code` for inline formulas
+- $$...$$ on its own line for display math
 - Only use fenced code blocks when the concept is genuinely programming-related
 
 Do NOT include a summary table.
 
-═══════════════════════════════════════════════
-SCHEMA
-═══════════════════════════════════════════════
-
+SCHEMA:
 {{
   "summary": "1-2 sentence essence",
   "why_it_matters": "2-3 sentences",
@@ -156,7 +122,7 @@ def generate_concept_content(
         content = call_llm_json(
             prompt,
             system=CONCEPT_SYSTEM_PROMPT,
-            temperature=0.6,
+            temperature=0.7,
             max_tokens=2500,
             model=FAST_MODEL,
         )
@@ -164,7 +130,7 @@ def generate_concept_content(
         content = call_llm_json(
             prompt,
             system=CONCEPT_SYSTEM_PROMPT,
-            temperature=0.6,
+            temperature=0.7,
             max_tokens=2500,
             model=DEFAULT_MODEL,
         )
@@ -189,8 +155,7 @@ def get_or_create_concept_content(concept_id: int, db: Session, force: bool = Fa
         )
         if cached:
             try:
-                data = json.loads(cached.content_json)
-                return _normalize_text(data)
+                return _normalize_text(json.loads(cached.content_json))
             except json.JSONDecodeError:
                 db.delete(cached)
                 db.commit()
@@ -207,8 +172,7 @@ def get_or_create_concept_content(concept_id: int, db: Session, force: bool = Fa
             )
             if cached:
                 try:
-                    data = json.loads(cached.content_json)
-                    return _normalize_text(data)
+                    return _normalize_text(json.loads(cached.content_json))
                 except json.JSONDecodeError:
                     db.delete(cached)
                     db.commit()
@@ -234,6 +198,7 @@ def get_or_create_concept_content(concept_id: int, db: Session, force: bool = Fa
         subject_name = subject.name if subject else "General"
 
         language = get_concept_owner_language(concept_id, db)
+
         content = generate_concept_content(
             concept_name=concept.name,
             description=concept.description or "",
@@ -262,8 +227,7 @@ def get_or_create_concept_content(concept_id: int, db: Session, force: bool = Fa
             )
             if existing:
                 try:
-                    data = json.loads(existing.content_json)
-                    return _normalize_text(data)
+                    return _normalize_text(json.loads(existing.content_json))
                 except json.JSONDecodeError:
                     pass
             raise

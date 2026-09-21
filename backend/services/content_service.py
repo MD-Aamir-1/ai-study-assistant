@@ -1,5 +1,5 @@
 """
-Generates GFG-style content + concepts with broad-field awareness.
+Generates GFG-style content + concepts with broad-field awareness and language support.
 """
 
 import json
@@ -13,6 +13,7 @@ import models
 from services.llm import call_llm_json, FAST_MODEL, DEFAULT_MODEL
 from services.language_service import get_topic_owner_language, language_instruction
 
+
 _topic_locks: dict[int, threading.Lock] = {}
 _locks_guard = threading.Lock()
 
@@ -24,9 +25,6 @@ def _get_topic_lock(topic_id: int) -> threading.Lock:
         return _topic_locks[topic_id]
 
 
-# ==================================================
-# Known broad fields — treated as surveys
-# ==================================================
 BROAD_FIELDS = {
     "ai", "artificial intelligence",
     "ml", "machine learning",
@@ -49,12 +47,9 @@ BROAD_FIELDS = {
 
 
 def _is_broad_field(topic_name: str) -> bool:
-    """Return True if topic is a broad field (not a narrow technique)."""
     key = topic_name.strip().lower()
-    # Direct match
     if key in BROAD_FIELDS:
         return True
-    # Short name (1-2 words) that's clearly a field
     words = key.split()
     if len(words) <= 2 and any(key in bf or bf in key for bf in BROAD_FIELDS):
         return True
@@ -108,9 +103,6 @@ def _normalize_text(value):
     return value
 
 
-# ==================================================
-# SYSTEM PROMPT
-# ==================================================
 CONTENT_SYSTEM_PROMPT = (
     "You are a warm, patient teacher writing beginner-friendly educational articles "
     "in the style of GeeksforGeeks. Plain prose, real-world examples, no jargon without explanation. "
@@ -126,9 +118,6 @@ CONTENT_SYSTEM_PROMPT = (
 )
 
 
-# ==================================================
-# STANDARD PROMPT (narrow topic)
-# ==================================================
 CONTENT_PROMPT_TEMPLATE = """Write a beginner-friendly article about "{topic}" ({subject}, {difficulty}).
 
 STYLE (match GeeksforGeeks):
@@ -202,81 +191,54 @@ Topic: {topic}
 """
 
 
-# ==================================================
-# BROAD-FIELD PROMPT (survey-style)
-# ==================================================
 BROAD_FIELD_PROMPT_TEMPLATE = """Write a comprehensive, beginner-friendly SURVEY article about the field "{topic}".
 
-This is a BROAD FIELD, not a narrow technique. The reader is a complete beginner
-exploring the field for the first time. The article should act as a roadmap.
+This is a BROAD FIELD, not a narrow technique. The reader is a complete beginner.
+The article should act as a roadmap.
 
-STYLE (match GeeksforGeeks):
+STYLE:
 - Warm, welcoming, patient tone
 - Plain prose paragraphs
-- Assume the reader knows nothing about the field
-- Start with why this field exists and what problems it solves
+- Assume the reader knows nothing
+- Start with why this field exists
 
-═══════════════════════════════════════════════
-SPECIAL: BROAD FIELD STRUCTURE
-═══════════════════════════════════════════════
-
-Because "{topic}" is a FIELD, the content must:
-1. Give a clear, motivating introduction to the whole field
-2. List the MAJOR SUB-FIELDS / BRANCHES (4-8 areas) as the "types" section
-3. Show a simple learning roadmap (what to learn first, second, third)
-4. Provide real-world examples from different areas
-5. Explain the tools/technologies used in the field
-6. List career paths / roles
-7. List common misconceptions beginners have
+Because "{topic}" is a FIELD, include:
+1. Clear motivating intro
+2. MAJOR SUB-FIELDS / BRANCHES (4-8 areas)
+3. Simple learning roadmap
+4. Real-world examples from different areas
+5. Tools/technologies used
+6. Career paths / roles
+7. Common beginner misconceptions
 
 DEFINITION STYLE (intro_md):
-Paragraph 1: Clear 1-sentence definition. Then "In simple words, ..." Then what problems it solves.
+Paragraph 1: Clear 1-sentence definition. Then "In simple words, ..."
 Paragraph 2: Brief history / why it exists.
-Paragraph 3: 2-3 bullet examples of real-world uses.
+Paragraph 3: 2-3 bullet examples.
 
 MATH — KEEP IT SIMPLE:
 - Simple formulas: use backticks
 - Real formulas on their own line: use $$...$$
 - Prefer words over symbols.
 
-BULLET LISTS — CRITICAL FORMATTING:
-- Write each item on its OWN LINE starting with "- "
-- Never merge items onto one line
+BULLET LISTS — CRITICAL:
+- Each item on its OWN line starting with "- "
 - Format: - **Name:** one-sentence explanation
 
 SECTIONS:
+1. intro_md — 3 paragraphs
+2. real_world_example_md — 2 paragraphs
+3. why_needed_md — ### 1. Reason / ### 2. Reason
+4. how_it_works_md — ### Stage 1: Name / ### Stage 2: Name
+5. types_md — ### Sub-field 1: Name / ### Sub-field 2: Name
+6. applications_md — bullet list 6-8 items
+7. challenges_md — bullet list 4-6 items
+8. best_practices_md — bullet list 5-6 items
+9. related_topics_md — bullet list 4-6 ADJACENT fields
+10. diagram_mermaid — Mermaid flowchart (learning roadmap)
+11. diagram_caption — one line
 
-1. intro_md — 3 paragraphs (definition + history + examples) — for a beginner.
-
-2. real_world_example_md — 2 paragraphs showing one vivid story about how
-   this field is used in real life.
-
-3. why_needed_md — Why the field matters. Use ### 1. Reason / ### 2. Reason.
-   Each reason gets a paragraph + 2-3 bullet examples.
-
-4. how_it_works_md — The field broken into logical learning stages.
-   Use ### Stage 1: Name / ### Stage 2: Name.
-   Each stage: 1 paragraph explaining what's covered + why it matters.
-
-5. types_md — The MAJOR SUB-FIELDS of this field. Use ### Sub-field 1: Name /
-   ### Sub-field 2: Name. Each: 1 paragraph + a one-line example of what you can build.
-
-6. applications_md — Bullet list of 6-8 real industries / use cases.
-
-7. challenges_md — Bullet list of 4-6 challenges for beginners entering the field
-   (not technical challenges — learning-curve challenges).
-
-8. best_practices_md — Bullet list of 5-6 tips for learning this field effectively.
-
-9. related_topics_md — Bullet list of 4-6 ADJACENT fields the learner should
-   explore next (e.g., after ML, try Deep Learning, Data Engineering).
-
-10. diagram_mermaid — Mermaid flowchart showing the LEARNING ROADMAP of the field.
-    Nodes should be stages/sub-fields. 6-10 nodes.
-
-11. diagram_caption — One line describing the roadmap.
-
-TONE: 1200-1600 words. Beginner-friendly. Motivating.
+TONE: 1200-1600 words.
 
 Return ONLY this JSON:
 {{
@@ -300,18 +262,14 @@ Topic: {topic}
 
 
 def _try_generate(model: str, topic: str, subject: str, difficulty: str, language: str = "en") -> dict:
-    # Choose prompt based on field type
     template = (
         BROAD_FIELD_PROMPT_TEMPLATE
         if _is_broad_field(topic)
         else CONTENT_PROMPT_TEMPLATE
     )
 
-    prompt = template.format(
-        topic=topic, subject=subject, difficulty=difficulty
-    )
+    prompt = template.format(topic=topic, subject=subject, difficulty=difficulty)
 
-    # Inject language instruction
     lang_note = language_instruction(language)
     if lang_note:
         prompt = prompt + lang_note
@@ -346,14 +304,6 @@ def generate_content(topic_name: str, subject_name: str, difficulty: str, langua
         return _try_generate(DEFAULT_MODEL, topic_name, subject_name, difficulty, language)
 
 
-def generate_content(topic_name: str, subject_name: str, difficulty: str) -> dict:
-    try:
-        return _try_generate(FAST_MODEL, topic_name, subject_name, difficulty)
-    except Exception as e:
-        print(f"[content_service] Fast model failed ({e}), retrying with fallback...")
-        return _try_generate(DEFAULT_MODEL, topic_name, subject_name, difficulty)
-
-
 def get_or_create_content(topic_id: int, db: Session) -> dict:
     topic = db.query(models.Topic).filter(models.Topic.id == topic_id).first()
     if not topic:
@@ -375,6 +325,7 @@ def get_or_create_content(topic_id: int, db: Session) -> dict:
     subject_name = subject.name if subject else "General"
 
     language = get_topic_owner_language(topic_id, db)
+
     content = generate_content(topic.name, subject_name, topic.difficulty or "medium", language)
 
     record = models.LearningContent(

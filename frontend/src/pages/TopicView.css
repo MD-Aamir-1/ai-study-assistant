@@ -23,13 +23,17 @@
   color: var(--text-muted);
   align-self: flex-start;
   transition: color 0.15s;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
 }
 
 .topic-back:hover {
   color: var(--primary);
 }
 
-/* Title + Actions row — side by side on desktop */
 .topic-title-row {
   display: flex;
   justify-content: space-between;
@@ -105,7 +109,6 @@
   color: var(--danger);
 }
 
-/* Actions — stay on the right */
 .topic-actions {
   display: flex;
   gap: 10px;
@@ -746,6 +749,13 @@
   text-align: center;
 }
 
+.topic-error-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
 /* ==================================================
    RESPONSIVE
    ================================================== */
@@ -754,7 +764,6 @@
     font-size: 22px !important;
   }
 
-  /* Stack title and actions on mobile */
   .topic-title-row {
     flex-wrap: wrap;
     gap: 14px;
@@ -830,10 +839,4 @@
     font-size: 13px;
     padding: 10px 14px;
   }
-}
-.topic-error-actions {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  justify-content: center;
 }

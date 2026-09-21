@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { getTopicFull, regenerateContent } from "../api/client";
 import Markdown from "../components/Markdown";
 import MermaidDiagram from "../components/MermaidDiagram";
@@ -94,18 +94,29 @@ export default function TopicView() {
     setExporting(true);
     try {
       await exportAnswerAsPdf({
-  title: data?.topic?.name || "Study Material",
-  subtitle: "",
-  sourceElement: contentRef.current,
-  filename: `${
-    data?.topic?.name?.replace(/\s+/g, "-").toLowerCase() || "topic"
-  }.pdf`,
-});
+        title: data?.topic?.name || "Study Material",
+        subtitle: data?.topic
+          ? `${data.topic.subject_name} · ${data.topic.difficulty}`
+          : "",
+        sourceElement: contentRef.current,
+        filename: `${
+          data?.topic?.name?.replace(/\s+/g, "-").toLowerCase() || "topic"
+        }.pdf`,
+      });
     } catch (err) {
       console.error(err);
       setError("PDF export failed.");
     } finally {
       setExporting(false);
+    }
+  };
+
+  const handleBack = () => {
+    // Go back in browser history. If there's no history, fall back to /search.
+    if (window.history.length > 1) {
+      navigate(-1);
+    } else {
+      navigate("/search");
     }
   };
 
@@ -127,7 +138,7 @@ export default function TopicView() {
     );
   }
 
-    if (error) {
+  if (error) {
     return (
       <div className="topic-error-wrap">
         <div className="topic-error">{error}</div>
@@ -167,9 +178,13 @@ export default function TopicView() {
     <div className="topic-view" ref={contentRef}>
       {/* ---------- HEADER ---------- */}
       <div className="topic-header" data-html2canvas-ignore="true">
-        <Link to="/search" className="topic-back">
-          <ArrowLeft size={16} /> Back to Search
-        </Link>
+        <button
+          className="topic-back"
+          onClick={handleBack}
+          type="button"
+        >
+          <ArrowLeft size={16} /> Back
+        </button>
 
         <div className="topic-title-row">
           <div>
@@ -238,7 +253,7 @@ export default function TopicView() {
         </div>
       </div>
 
-      {/* ---------- CONCEPT CHIPS (hidden in PDF) ---------- */}
+      {/* ---------- CONCEPT CHIPS ---------- */}
       {concepts.length > 0 && (
         <section
           className="topic-concepts-strip"

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { getStudentConcepts } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import {
@@ -17,18 +18,15 @@ const CACHE_KEY = "gaps_cache_v1";
 
 export default function KnowledgeGaps() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [filter, setFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // ==================================================
-  // Instant from cache + silent refresh
-  // ==================================================
   useEffect(() => {
     if (!user?.student_id) return;
 
-    // Step 1: Instant from cache
     let hasCache = false;
     try {
       const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
@@ -41,9 +39,7 @@ export default function KnowledgeGaps() {
       // ignore
     }
 
-    // Step 2: Background refresh
     refreshGaps(!hasCache);
-
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.student_id]);
 
@@ -65,7 +61,7 @@ export default function KnowledgeGaps() {
           })
         );
       } catch {
-        // ignore storage errors
+        // ignore
       }
     } catch (err) {
       if (!data) setError("Failed to load concept data");
@@ -112,6 +108,10 @@ export default function KnowledgeGaps() {
   const strong = allConcepts.filter((c) => c.score >= 75).length;
   const improving = allConcepts.filter((c) => c.trend === "improving").length;
   const atRisk = allConcepts.filter((c) => c.at_risk === true).length;
+
+  const handleRowClick = (topicId) => {
+    navigate(`/topic/${topicId}`);
+  };
 
   return (
     <div className="gaps-page">
@@ -217,7 +217,18 @@ export default function KnowledgeGaps() {
               {sorted.map((c) => (
                 <div
                   key={`${c.topic_id}-${c.concept_id}`}
-                  className={`gap-item ${c.at_risk ? "gap-item-risk" : ""}`}
+                  className={`gap-item gap-item-clickable ${
+                    c.at_risk ? "gap-item-risk" : ""
+                  }`}
+                  onClick={() => handleRowClick(c.topic_id)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      handleRowClick(c.topic_id);
+                    }
+                  }}
                 >
                   <div className="gap-item-left">
                     <div className={`gap-score ${scoreClass(c.score)}`}>
@@ -231,7 +242,9 @@ export default function KnowledgeGaps() {
                             className={`ml-badge ${
                               c.at_risk ? "ml-badge-risk" : "ml-badge-ok"
                             }`}
-                            title={`ML confidence: ${c.risk_confidence} · ${Math.round(
+                            title={`ML confidence: ${
+                              c.risk_confidence
+                            } · ${Math.round(
                               (c.risk_probability || 0) * 100
                             )}% risk probability`}
                           >
