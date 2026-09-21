@@ -712,3 +712,78 @@
     border-radius: 16px;
   }
 }
+/* ==================================================
+   VOICE
+   ================================================== */
+.nova-mic-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.nova-mic-btn:hover:not(:disabled) {
+  background: var(--surface-alt);
+  color: var(--primary);
+}
+
+.nova-mic-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.nova-mic-btn.listening {
+  background: var(--danger);
+  color: white;
+  animation: micPulse 1.4s ease-in-out infinite;
+}
+
+.nova-mic-btn.listening:hover {
+  background: #dc2626;
+}
+
+@keyframes micPulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(239, 68, 68, 0);
+  }
+}
+
+.nova-voice-preview {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: var(--danger-light);
+  color: var(--danger);
+  font-size: 13px;
+  font-style: italic;
+  animation: voiceIn 0.2s ease;
+}
+
+@keyframes voiceIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.nova-composer-hint-error {
+  color: var(--danger);
+}
+
+/* ---------- Speaker button on assistant messages ---------- */
+.msg-action.active svg {
+  color: var(--primary);
+}

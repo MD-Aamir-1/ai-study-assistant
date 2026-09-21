@@ -12,6 +12,8 @@ import {
   streamChatMessage,
 } from "../api/client";
 import ChatMessageView from "../components/ChatMessageView";
+import useVoiceInput from "../hooks/useVoiceInput";
+import useVoiceOutput from "../hooks/useVoiceOutput";
 import {
   Plus,
   Search,
@@ -33,6 +35,8 @@ import {
   Lightbulb,
   ListChecks,
   PenTool,
+  Mic,
+  MicOff,
 } from "lucide-react";
 import "./AITutor.css";
 
@@ -60,17 +64,10 @@ export default function AITutor() {
   const [input, setInput] = useState("");
   const [error, setError] = useState("");
 
-  // Sidebar (mobile)
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  // Search
   const [searchQuery, setSearchQuery] = useState("");
   const [searchTimer, setSearchTimer] = useState(null);
-
-  // Conversation options menu
   const [menuConvId, setMenuConvId] = useState(null);
-
-  // Rename inline
   const [renamingId, setRenamingId] = useState(null);
   const [renameValue, setRenameValue] = useState("");
 
@@ -78,13 +75,27 @@ export default function AITutor() {
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
 
-  // ---------- Load models + conversations ----------
+  // ---------- Voice input ----------
+  const voiceInput = useVoiceInput({
+    onResult: (text) => {
+      // Append recognized text to the current input
+      setInput((prev) => (prev ? `${prev} ${text}` : text));
+      // Focus the textarea so user can hit Enter
+      setTimeout(() => textareaRef.current?.focus(), 50);
+    },
+  });
+
+  // ---------- Voice output ----------
+  const voiceOutput = useVoiceOutput();
+
+  // ---------- Load models ----------
   useEffect(() => {
     getChatModels()
       .then((res) => setModels(res.data.models || []))
       .catch(() => {});
   }, []);
 
+  // ---------- Load conversations ----------
   useEffect(() => {
     if (!user?.student_id) return;
     loadConversations();
@@ -112,44 +123,40 @@ export default function AITutor() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery]);
 
-  // ---------- Load a conversation's messages ----------
+  // ---------- Load a conversation ----------
   const openConversation = async (convId) => {
     setActiveConvId(convId);
     setSidebarOpen(false);
     setError("");
+    // Stop any ongoing speech
+    voiceOutput.stop();
     try {
       const res = await getConversation(convId, user.student_id);
       setMessages(res.data.messages || []);
       setSelectedModel(res.data.model || DEFAULT_MODEL);
-      // Fetch full conv details
-      const found = conversations.find((c) => c.id === convId);
-      if (found) {
-        setConversations((prev) =>
-          prev.map((c) =>
-            c.id === convId ? { ...c, title: res.data.title } : c
-          )
-        );
-      }
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === convId ? { ...c, title: res.data.title } : c
+        )
+      );
     } catch {
       setError("Could not load this conversation.");
     }
   };
 
-  // ---------- New conversation ----------
   const startNewChat = () => {
     setActiveConvId(null);
     setMessages([]);
     setInput("");
     setError("");
     setSidebarOpen(false);
+    voiceOutput.stop();
   };
 
-  // ---------- Ensure a conversation exists ----------
   const ensureConversation = async () => {
     if (activeConvId) return activeConvId;
     const res = await createConversation(user.student_id, "New chat", selectedModel);
     setActiveConvId(res.data.id);
-    // Add to sidebar (will be refreshed after send)
     setConversations((prev) => [
       {
         id: res.data.id,
@@ -164,15 +171,15 @@ export default function AITutor() {
     return res.data.id;
   };
 
-  // ---------- Send message (streaming) ----------
+  // ---------- Send message ----------
   const sendMessage = async (overrideText) => {
     const text = (overrideText ?? input).trim();
     if (!text || streaming) return;
 
     setError("");
     setInput("");
+    voiceOutput.stop();
 
-    // Show user's message immediately
     const tempUserId = `temp-${Date.now()}`;
     const tempAssistantId = `temp-a-${Date.now()}`;
 
@@ -206,7 +213,6 @@ export default function AITutor() {
         selectedModel,
         {
           user_message_id: (data) => {
-            // Replace temp user id with real id
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === tempUserId ? { ...m, id: data.id } : m
@@ -214,7 +220,6 @@ export default function AITutor() {
             );
           },
           title: (data) => {
-            // Update sidebar title
             setConversations((prev) =>
               prev.map((c) =>
                 c.id === convId ? { ...c, title: data.title } : c
@@ -230,7 +235,6 @@ export default function AITutor() {
                   : m
               )
             );
-            // Auto-scroll
             messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
           },
           done: (data) => {
@@ -255,7 +259,6 @@ export default function AITutor() {
     } finally {
       setStreaming(false);
       abortRef.current = null;
-      // Refresh sidebar to get updated previews/titles
       loadConversations(searchQuery);
     }
   };
@@ -286,8 +289,6 @@ export default function AITutor() {
   // ---------- Regenerate ----------
   const handleRegenerate = async (assistantMsgId) => {
     if (streaming) return;
-
-    // Find the user message BEFORE this assistant message
     const idx = messages.findIndex((m) => m.id === assistantMsgId);
     if (idx < 1) return;
     let userIdx = -1;
@@ -298,14 +299,9 @@ export default function AITutor() {
       }
     }
     if (userIdx === -1) return;
-
     const userText = messages[userIdx].content;
-
-    // Remove this assistant message and everything after
     const newMessages = messages.slice(0, idx);
     setMessages(newMessages);
-
-    // Resend
     await sendMessage(userText);
   };
 
@@ -314,11 +310,8 @@ export default function AITutor() {
     if (streaming) return;
     const idx = messages.findIndex((m) => m.id === msgId);
     if (idx === -1) return;
-
-    // Keep messages before this user message
     const newMessages = messages.slice(0, idx);
     setMessages(newMessages);
-
     await sendMessage(newContent);
   };
 
@@ -330,7 +323,7 @@ export default function AITutor() {
     try {
       await sendMessageFeedback(msgId, user.student_id, feedback);
     } catch {
-      // revert silently
+      // silent
     }
   };
 
@@ -413,7 +406,7 @@ export default function AITutor() {
   // ==================================================
   return (
     <div className="nova-layout">
-      {/* ---------- SIDEBAR ---------- */}
+      {/* SIDEBAR */}
       <aside className={`nova-sidebar ${sidebarOpen ? "open" : ""}`}>
         <div className="nova-sidebar-head">
           <div className="nova-brand">
@@ -506,10 +499,7 @@ export default function AITutor() {
                       className="nova-conv-menu"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <button
-                        type="button"
-                        onClick={() => startRename(conv)}
-                      >
+                      <button type="button" onClick={() => startRename(conv)}>
                         <Pencil size={12} /> Rename
                       </button>
                       <button type="button" onClick={() => togglePin(conv)}>
@@ -555,9 +545,8 @@ export default function AITutor() {
         />
       )}
 
-      {/* ---------- MAIN ---------- */}
+      {/* MAIN */}
       <main className="nova-main">
-        {/* Topbar */}
         <header className="nova-topbar">
           <button
             type="button"
@@ -595,7 +584,6 @@ export default function AITutor() {
           </div>
         </header>
 
-        {/* Content */}
         <div className="nova-content">
           {error && (
             <div className="nova-error">
@@ -640,11 +628,15 @@ export default function AITutor() {
                 <ChatMessageView
                   key={m.id}
                   message={m}
-                  isStreaming={streaming && m.id === messages[messages.length - 1]?.id}
+                  isStreaming={
+                    streaming && m.id === messages[messages.length - 1]?.id
+                  }
                   onRegenerate={handleRegenerate}
                   onEdit={handleEditMessage}
                   onFeedback={handleFeedback}
                   onDelete={handleDeleteMessage}
+                  onSpeak={voiceOutput.supported ? voiceOutput.speak : undefined}
+                  isSpeaking={voiceOutput.speakingId === m.id}
                 />
               ))}
               <div ref={messagesEndRef} />
@@ -655,12 +647,28 @@ export default function AITutor() {
         {/* Composer */}
         <div className="nova-composer-wrap">
           <div className="nova-composer">
+            {voiceInput.supported && (
+              <button
+                type="button"
+                className={`nova-mic-btn ${voiceInput.listening ? "listening" : ""}`}
+                onClick={voiceInput.toggle}
+                title={voiceInput.listening ? "Stop listening" : "Speak"}
+                disabled={streaming}
+              >
+                {voiceInput.listening ? <MicOff size={16} /> : <Mic size={16} />}
+              </button>
+            )}
+
             <textarea
               ref={textareaRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Message NovaAI..."
+              placeholder={
+                voiceInput.listening
+                  ? "Listening..."
+                  : "Message NovaAI..."
+              }
               rows={1}
               disabled={streaming}
             />
@@ -686,6 +694,19 @@ export default function AITutor() {
               </button>
             )}
           </div>
+
+          {voiceInput.listening && voiceInput.interim && (
+            <div className="nova-voice-preview">
+              <Mic size={12} /> {voiceInput.interim}
+            </div>
+          )}
+
+          {voiceInput.error && (
+            <p className="nova-composer-hint nova-composer-hint-error">
+              {voiceInput.error}
+            </p>
+          )}
+
           <p className="nova-composer-hint">
             NovaAI can make mistakes. Check important information.
           </p>

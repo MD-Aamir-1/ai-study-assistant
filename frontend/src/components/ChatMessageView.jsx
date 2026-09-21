@@ -15,6 +15,8 @@ import {
   Pencil,
   Trash2,
   X,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import "./ChatMessageView.css";
 
@@ -78,6 +80,8 @@ export default function ChatMessageView({
   onEdit,
   onFeedback,
   onDelete,
+  onSpeak,
+  isSpeaking,
   isStreaming,
 }) {
   const [copied, setCopied] = useState(false);
@@ -159,6 +163,16 @@ export default function ChatMessageView({
                 >
                   {copied ? <Check size={13} /> : <Copy size={13} />}
                 </button>
+                {onSpeak && (
+                  <button
+                    type="button"
+                    className={`msg-action ${isSpeaking ? "active" : ""}`}
+                    onClick={() => onSpeak(message.id, message.content)}
+                    title={isSpeaking ? "Stop speaking" : "Read aloud"}
+                  >
+                    {isSpeaking ? <VolumeX size={13} /> : <Volume2 size={13} />}
+                  </button>
+                )}
                 {onRegenerate && (
                   <button
                     type="button"
