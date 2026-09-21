@@ -611,3 +611,159 @@
   color: var(--primary);
   font-weight: 700;
 }
+/* ==================================================
+   REMINDERS
+   ================================================== */
+.reminder-warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--warning-light);
+  color: var(--warning);
+  border: 1px solid var(--warning);
+  font-size: 12.5px;
+  margin-bottom: 14px;
+}
+
+.reminder-flash {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  margin-bottom: 14px;
+}
+
+.reminder-flash-error {
+  background: var(--danger-light);
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
+
+.reminder-flash-success {
+  background: var(--success-light);
+  color: var(--success);
+  border: 1px solid var(--success);
+}
+
+.reminder-toggle-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+
+.reminder-toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.reminder-switch {
+  width: 46px;
+  height: 26px;
+  border-radius: 13px;
+  background: var(--border);
+  border: none;
+  padding: 0;
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.reminder-switch.on {
+  background: var(--primary);
+}
+
+.reminder-switch-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 0.2s;
+}
+
+.reminder-switch.on .reminder-switch-knob {
+  transform: translateX(20px);
+}
+
+.reminder-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.reminder-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.reminder-time-input {
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+  width: fit-content;
+  font-family: inherit;
+}
+
+.reminder-time-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-light);
+}
+
+.reminder-days {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.reminder-day {
+  padding: 8px 14px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+
+.reminder-day:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.reminder-day.active {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+.reminder-test-btn {
+  margin-top: 4px;
+}

@@ -23,7 +23,18 @@ import {
   Globe,
   Link as LinkIcon,
   Code,
+  Bell,
+  BellOff,
+  Clock,
 } from "lucide-react";
+import {
+  getReminderSettings,
+  saveReminderSettings,
+  requestNotificationPermission,
+  isNotificationSupported,
+  sendTestNotification,
+  DAY_NAMES,
+} from "../utils/reminderService";
 import "./Settings.css";
 
 const INTEREST_OPTIONS = [
@@ -96,6 +107,15 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
+  // ---------- Reminder state ----------
+  const [reminderEnabled, setReminderEnabled] = useState(false);
+  const [reminderTime, setReminderTime] = useState("18:00");
+  const [reminderDays, setReminderDays] = useState([1, 2, 3, 4, 5]);
+  const [notificationPermission, setNotificationPermission] = useState("default");
+  const [reminderError, setReminderError] = useState("");
+  const [reminderSuccess, setReminderSuccess] = useState("");
+
+  // ---------- Load profile ----------
   useEffect(() => {
     if (user) {
       setProfile({
@@ -116,12 +136,25 @@ export default function Settings() {
     }
   }, [user]);
 
+  // ---------- Load stats ----------
   useEffect(() => {
     if (!user?.student_id) return;
     getProfileStats(user.student_id)
       .then((res) => setStats(res.data))
       .catch(() => setStats(null));
   }, [user?.student_id]);
+
+  // ---------- Load reminder settings ----------
+  useEffect(() => {
+    const s = getReminderSettings();
+    setReminderEnabled(s.enabled);
+    setReminderTime(s.time);
+    setReminderDays(s.days);
+
+    if (isNotificationSupported()) {
+      setNotificationPermission(Notification.permission);
+    }
+  }, []);
 
   const flash = (msg, isError = false) => {
     if (isError) setError(msg);
@@ -132,6 +165,16 @@ export default function Settings() {
     }, 2500);
   };
 
+  const flashReminder = (msg, isError = false) => {
+    if (isError) setReminderError(msg);
+    else setReminderSuccess(msg);
+    setTimeout(() => {
+      setReminderError("");
+      setReminderSuccess("");
+    }, 2500);
+  };
+
+  // ---------- Avatar ----------
   const handleAvatarChange = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -195,6 +238,7 @@ export default function Settings() {
     setProfile((p) => ({ ...p, avatar_url: "" }));
   };
 
+  // ---------- Interests ----------
   const selectedInterests = profile.interests
     ? profile.interests.split(",").map((s) => s.trim()).filter(Boolean)
     : [];
@@ -206,6 +250,7 @@ export default function Settings() {
     setProfile((p) => ({ ...p, interests: Array.from(current).join(", ") }));
   };
 
+  // ---------- Save profile ----------
   const handleSaveProfile = async (e) => {
     e.preventDefault();
     if (!user?.student_id) return;
@@ -234,6 +279,7 @@ export default function Settings() {
     }
   };
 
+  // ---------- Export ----------
   const handleExport = async () => {
     if (!user?.student_id) return;
     try {
@@ -253,6 +299,7 @@ export default function Settings() {
     }
   };
 
+  // ---------- Delete account ----------
   const handleDeleteAccount = async () => {
     if (!user?.student_id) return;
     const confirmText = window.prompt(
@@ -271,6 +318,65 @@ export default function Settings() {
       }, 1500);
     } catch {
       flash("Failed to delete account.", true);
+    }
+  };
+
+  // ---------- Reminder handlers ----------
+  const handleToggleReminder = async () => {
+    const newValue = !reminderEnabled;
+
+    if (newValue) {
+      const perm = await requestNotificationPermission();
+      setNotificationPermission(perm);
+      if (perm !== "granted") {
+        flashReminder(
+          "Please allow notifications in your browser to enable reminders.",
+          true
+        );
+        return;
+      }
+    }
+
+    setReminderEnabled(newValue);
+    saveReminderSettings({
+      enabled: newValue,
+      time: reminderTime,
+      days: reminderDays,
+    });
+    flashReminder(newValue ? "Reminders enabled" : "Reminders disabled");
+  };
+
+  const handleTimeChange = (newTime) => {
+    setReminderTime(newTime);
+    saveReminderSettings({
+      enabled: reminderEnabled,
+      time: newTime,
+      days: reminderDays,
+    });
+  };
+
+  const handleDayToggle = (dayIndex) => {
+    const newDays = reminderDays.includes(dayIndex)
+      ? reminderDays.filter((d) => d !== dayIndex)
+      : [...reminderDays, dayIndex].sort();
+    setReminderDays(newDays);
+    saveReminderSettings({
+      enabled: reminderEnabled,
+      time: reminderTime,
+      days: newDays,
+    });
+  };
+
+  const handleTestReminder = () => {
+    if (notificationPermission !== "granted") {
+      flashReminder("Allow notifications first.", true);
+      return;
+    }
+    const res = sendTestNotification();
+    if (res.ok) {
+      flashReminder("Test notification sent!");
+    } else {
+      flashReminder(res.error || "Could not send test.", true);
     }
   };
 
@@ -296,7 +402,9 @@ export default function Settings() {
         </div>
       )}
 
-      {/* PROFILE HERO */}
+      {/* ==================================================
+          PROFILE HERO
+          ================================================== */}
       <section className="settings-section profile-hero">
         <div className="profile-hero-inner">
           <div className="avatar-wrap">
@@ -378,7 +486,9 @@ export default function Settings() {
         )}
       </section>
 
-      {/* EDIT PROFILE */}
+      {/* ==================================================
+          EDIT PROFILE
+          ================================================== */}
       <section className="settings-section">
         <div className="section-head">
           <div className="section-icon icon-blue">
@@ -602,7 +712,9 @@ export default function Settings() {
         </form>
       </section>
 
-      {/* APPEARANCE */}
+      {/* ==================================================
+          APPEARANCE
+          ================================================== */}
       <section className="settings-section">
         <div className="section-head">
           <div className="section-icon icon-purple">
@@ -633,7 +745,116 @@ export default function Settings() {
         </div>
       </section>
 
-      {/* DATA */}
+      {/* ==================================================
+          REMINDERS
+          ================================================== */}
+      <section className="settings-section">
+        <div className="section-head">
+          <div className="section-icon icon-orange">
+            <Bell size={18} />
+          </div>
+          <div>
+            <h2 className="section-title">Study Reminders</h2>
+            <p className="section-desc">
+              Get a browser notification at your chosen time. Works while the
+              app is open in a tab.
+            </p>
+          </div>
+        </div>
+
+        {!isNotificationSupported() && (
+          <div className="reminder-warning">
+            <AlertTriangle size={14} /> Your browser doesn't support
+            notifications.
+          </div>
+        )}
+
+        {notificationPermission === "denied" && (
+          <div className="reminder-warning">
+            <AlertTriangle size={14} /> Notifications are blocked. Enable them
+            in your browser settings for this site.
+          </div>
+        )}
+
+        {reminderError && (
+          <div className="reminder-flash reminder-flash-error">
+            <AlertTriangle size={14} /> {reminderError}
+          </div>
+        )}
+        {reminderSuccess && (
+          <div className="reminder-flash reminder-flash-success">
+            <Check size={14} /> {reminderSuccess}
+          </div>
+        )}
+
+        <div className="reminder-toggle-row">
+          <div className="reminder-toggle-label">
+            {reminderEnabled ? (
+              <>
+                <Bell size={15} /> Reminders enabled
+              </>
+            ) : (
+              <>
+                <BellOff size={15} /> Reminders disabled
+              </>
+            )}
+          </div>
+          <button
+            type="button"
+            className={`reminder-switch ${reminderEnabled ? "on" : ""}`}
+            onClick={handleToggleReminder}
+            aria-pressed={reminderEnabled}
+          >
+            <span className="reminder-switch-knob" />
+          </button>
+        </div>
+
+        {reminderEnabled && (
+          <>
+            <div className="reminder-block">
+              <label className="reminder-label">
+                <Clock size={12} /> Reminder time
+              </label>
+              <input
+                type="time"
+                value={reminderTime}
+                onChange={(e) => handleTimeChange(e.target.value)}
+                className="reminder-time-input"
+              />
+            </div>
+
+            <div className="reminder-block">
+              <label className="reminder-label">Days</label>
+              <div className="reminder-days">
+                {DAY_NAMES.map((name, index) => (
+                  <button
+                    key={index}
+                    type="button"
+                    className={`reminder-day ${
+                      reminderDays.includes(index) ? "active" : ""
+                    }`}
+                    onClick={() => handleDayToggle(index)}
+                  >
+                    {name.slice(0, 3)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="btn-secondary reminder-test-btn"
+              onClick={handleTestReminder}
+            >
+              <Bell size={14} /> Send test notification
+            </button>
+          </>
+        )}
+      </section>
+
+      {/* ==================================================
+          DATA & PRIVACY
+          ================================================== */}
       <section className="settings-section">
         <div className="section-head">
           <div className="section-icon icon-blue">
@@ -655,7 +876,9 @@ export default function Settings() {
         </div>
       </section>
 
-      {/* DANGER ZONE */}
+      {/* ==================================================
+          DANGER ZONE
+          ================================================== */}
       <section className="settings-section danger-zone">
         <div className="section-head">
           <div className="section-icon icon-red">

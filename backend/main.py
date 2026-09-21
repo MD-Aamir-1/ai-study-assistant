@@ -1404,6 +1404,191 @@ def learn_from_text(req: LearnFromTextRequest, db: Session = Depends(get_db)):
         "truncated": truncated,
         "source_chars": len(text),
     }
+# ==================================================
+# FLASHCARDS
+# ==================================================
+FLASHCARD_SYSTEM_PROMPT = (
+    "You are an expert educator creating revision flashcards. "
+    "You always respond with valid JSON only. No markdown fences, no prose. "
+    "CRITICAL: Front is a question that tests recall; back is a concise answer."
+)
+
+FLASHCARD_PROMPT_TEMPLATE = """Create {num} flashcards for the topic "{topic}" (subject: "{subject}", difficulty: {difficulty}).
+
+The topic is broken into these concepts:
+{concept_list}
+
+═══════════════════════════════════════════════
+FLASHCARD RULES
+═══════════════════════════════════════════════
+
+Front (question side):
+- Short, clear question that tests recall or understanding
+- 1 sentence, ending with "?"
+- Vary the style: some "what", some "why", some "how", some "when to use"
+- Never a full scenario — keep it short
+
+Back (answer side):
+- 1-2 sentence answer, direct and clear
+- No fluff, no "In this context..."
+- Optionally include a tiny example
+
+Coverage:
+- Cover the concepts above roughly evenly
+- No two cards should test the same fact
+
+JSON Schema:
+{{
+  "cards": [
+    {{
+      "front": "Question ending with ?",
+      "back": "Concise answer.",
+      "concept_name": "Exact concept name from the list"
+    }}
+  ]
+}}
+
+Topic: {topic}
+"""
+
+
+class FlashcardGenerateRequest(BaseModel):
+    topic_id: int
+    num_cards: int = 10
+    force: bool = False
+
+
+@app.post("/flashcards/generate")
+def generate_flashcards_endpoint(
+    payload: FlashcardGenerateRequest, db: Session = Depends(get_db)
+):
+    topic = db.query(models.Topic).filter(models.Topic.id == payload.topic_id).first()
+    if not topic:
+        raise HTTPException(status_code=404, detail="Topic not found")
+
+    # Try cache unless forced
+    if not payload.force:
+        cached = (
+            db.query(models.FlashcardSet)
+            .filter(models.FlashcardSet.topic_id == payload.topic_id)
+            .first()
+        )
+        if cached:
+            try:
+                cards = json.loads(cached.cards_json)
+                return {
+                    "topic_id": topic.id,
+                    "topic_name": topic.name,
+                    "total": len(cards),
+                    "cards": cards,
+                    "cached": True,
+                }
+            except json.JSONDecodeError:
+                db.delete(cached)
+                db.commit()
+
+    # If forced, delete existing
+    if payload.force:
+        existing = (
+            db.query(models.FlashcardSet)
+            .filter(models.FlashcardSet.topic_id == payload.topic_id)
+            .first()
+        )
+        if existing:
+            db.delete(existing)
+            db.commit()
+
+    # Ensure concepts exist
+    from services.concept_service import get_or_create_concepts
+    concepts = get_or_create_concepts(payload.topic_id, db)
+
+    if not concepts:
+        raise HTTPException(status_code=400, detail="No concepts available for this topic")
+
+    subject = db.query(models.Subject).filter(models.Subject.id == topic.subject_id).first()
+    subject_name = subject.name if subject else "General"
+
+    concept_list = "\n".join(
+        f"{i + 1}. {c.name} — {c.description}" for i, c in enumerate(concepts)
+    )
+
+    prompt = FLASHCARD_PROMPT_TEMPLATE.format(
+        num=max(5, min(payload.num_cards, 20)),
+        topic=topic.name,
+        subject=subject_name,
+        difficulty=topic.difficulty or "medium",
+        concept_list=concept_list,
+    )
+
+    # Inject language
+    from services.language_service import (
+        get_topic_owner_language,
+        language_instruction,
+    )
+    language = get_topic_owner_language(payload.topic_id, db)
+    lang_note = language_instruction(language)
+    if lang_note:
+        prompt = prompt + lang_note
+
+    try:
+        from services.llm import call_llm_json, FAST_MODEL, DEFAULT_MODEL
+        try:
+            result = call_llm_json(
+                prompt,
+                system=FLASHCARD_SYSTEM_PROMPT,
+                temperature=0.6,
+                max_tokens=2500,
+                model=FAST_MODEL,
+            )
+        except Exception:
+            result = call_llm_json(
+                prompt,
+                system=FLASHCARD_SYSTEM_PROMPT,
+                temperature=0.6,
+                max_tokens=2500,
+                model=DEFAULT_MODEL,
+            )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Flashcard generation failed: {e}")
+
+    if not isinstance(result, dict) or "cards" not in result:
+        raise HTTPException(status_code=500, detail="LLM returned malformed flashcards")
+
+    cards = []
+    for c in result["cards"]:
+        if not isinstance(c, dict):
+            continue
+        front = (c.get("front") or "").strip()
+        back = (c.get("back") or "").strip()
+        if not front or not back:
+            continue
+        cards.append(
+            {
+                "front": front,
+                "back": back,
+                "concept_name": (c.get("concept_name") or "").strip(),
+            }
+        )
+
+    if not cards:
+        raise HTTPException(status_code=500, detail="LLM produced no valid flashcards")
+
+    # Save to cache
+    record = models.FlashcardSet(
+        topic_id=payload.topic_id,
+        cards_json=json.dumps(cards),
+        model_version="openai/gpt-oss-20b",
+    )
+    db.add(record)
+    db.commit()
+
+    return {
+        "topic_id": topic.id,
+        "topic_name": topic.name,
+        "total": len(cards),
+        "cards": cards,
+        "cached": False,
+    }
 
 
 # ==================================================
@@ -1531,4 +1716,162 @@ def get_notifications(student_id: int, db: Session = Depends(get_db)):
         "student_id": student_id,
         "total": len(notifications),
         "notifications": notifications,
+    }
+# ==================================================
+# ANALYTICS TIMELINE
+# ==================================================
+@app.get("/analytics/timeline/{student_id}")
+def analytics_timeline(student_id: int, days: int = 30, db: Session = Depends(get_db)):
+    """
+    Return time-series analytics for the student.
+    - daily_scores: avg quiz score per day (last N days)
+    - activity: count of tests taken per day
+    - score_trend: rolling avg of score over time
+    - concepts_progress: new concepts tested per week
+    - topic_breakdown: score per subject
+    """
+    student = db.query(models.Student).filter(models.Student.id == student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    today = date_cls.today()
+    start_date = today - timedelta(days=days - 1)
+
+    # ---------- Daily activity & avg score ----------
+    # Group question attempts by day
+    attempts = (
+        db.query(models.QuestionAttempt)
+        .filter(
+            models.QuestionAttempt.student_id == student_id,
+            models.QuestionAttempt.attempted_at >= start_date,
+        )
+        .all()
+    )
+
+    daily_map = {}  # "YYYY-MM-DD" -> { correct, total, sessions: set }
+    for a in attempts:
+        if not a.attempted_at:
+            continue
+        day = a.attempted_at.date()
+        key = str(day)
+        if key not in daily_map:
+            daily_map[key] = {"correct": 0, "total": 0, "sessions": set()}
+        daily_map[key]["total"] += 1
+        if a.is_correct:
+            daily_map[key]["correct"] += 1
+        if a.session_id:
+            daily_map[key]["sessions"].add(a.session_id)
+
+    daily_scores = []
+    for i in range(days):
+        d = start_date + timedelta(days=i)
+        key = str(d)
+        entry = daily_map.get(key)
+        if entry and entry["total"] > 0:
+            score = round((entry["correct"] / entry["total"]) * 100, 1)
+        else:
+            score = 0
+        daily_scores.append({
+            "date": key,
+            "label": d.strftime("%b %d"),
+            "score": score,
+            "questions": entry["total"] if entry else 0,
+            "tests": len(entry["sessions"]) if entry else 0,
+        })
+
+    # ---------- Weekly concept progress ----------
+    # Count first-time appearances of concept_stats per week
+    stats = db.query(models.ConceptStat).filter(
+        models.ConceptStat.student_id == student_id
+    ).all()
+
+    # Use last_updated as approximate "first seen" date
+    weekly_concepts = {}
+    for s in stats:
+        if not s.last_updated:
+            continue
+        # Get Monday of the week
+        week_start = s.last_updated.date() - timedelta(days=s.last_updated.date().weekday())
+        key = str(week_start)
+        weekly_concepts[key] = weekly_concepts.get(key, 0) + 1
+
+    concepts_progress = []
+    for i in range(5, -1, -1):  # last 6 weeks
+        week_start = today - timedelta(days=today.weekday() + 7 * i)
+        key = str(week_start)
+        concepts_progress.append({
+            "week": key,
+            "label": week_start.strftime("%b %d"),
+            "concepts": weekly_concepts.get(key, 0),
+        })
+
+    # ---------- Topic breakdown ----------
+    subjects = db.query(models.Subject).filter(
+        models.Subject.student_id == student_id
+    ).all()
+
+    topic_breakdown = []
+    for subject in subjects:
+        topics = db.query(models.Topic).filter(
+            models.Topic.subject_id == subject.id
+        ).all()
+
+        concept_scores = []
+        for topic in topics:
+            concepts = db.query(models.Concept).filter(
+                models.Concept.topic_id == topic.id
+            ).all()
+            for c in concepts:
+                stat = db.query(models.ConceptStat).filter(
+                    models.ConceptStat.student_id == student_id,
+                    models.ConceptStat.concept_id == c.id,
+                ).first()
+                if stat:
+                    concept_scores.append(stat.score)
+
+        avg = (
+            round(sum(concept_scores) / len(concept_scores), 1)
+            if concept_scores
+            else 0
+        )
+        topic_breakdown.append({
+            "subject_name": subject.name,
+            "avg_score": avg,
+            "concepts_count": len(concept_scores),
+        })
+
+    # Sort descending by avg
+    topic_breakdown.sort(key=lambda x: x["avg_score"], reverse=True)
+
+    # ---------- Headline stats ----------
+    total_questions = sum(d["questions"] for d in daily_scores)
+    total_tests = sum(d["tests"] for d in daily_scores)
+    active_days = sum(1 for d in daily_scores if d["questions"] > 0)
+    avg_score = (
+        round(
+            sum(d["score"] * d["questions"] for d in daily_scores) / total_questions,
+            1,
+        )
+        if total_questions
+        else 0
+    )
+
+    # Best day
+    best_day = max(daily_scores, key=lambda d: d["score"]) if daily_scores else None
+    best_day = best_day if best_day and best_day["score"] > 0 else None
+
+    return {
+        "student_id": student_id,
+        "student_name": student.name,
+        "period_days": days,
+        "headline": {
+            "total_questions": total_questions,
+            "total_tests": total_tests,
+            "active_days": active_days,
+            "avg_score": avg_score,
+            "best_day": best_day,
+        },
+        "daily_scores": daily_scores,
+        "concepts_progress": concepts_progress,
+        "topic_breakdown": topic_breakdown,
     }

@@ -101,5 +101,15 @@ export const clearHistory = (studentId) =>
   API.delete(`/students/${studentId}/search-history`);
 export const getProfileStats = (studentId) =>
   API.get(`/students/${studentId}/profile-stats`);
+// ---------- FLASHCARDS ----------
+export const generateFlashcards = (topicId, numCards = 10, force = false) =>
+  API.post("/flashcards/generate", {
+    topic_id: topicId,
+    num_cards: numCards,
+    force,
+  });
+// ---------- ANALYTICS ----------
+export const getAnalyticsTimeline = (studentId, days = 30) =>
+  API.get(`/analytics/timeline/${studentId}?days=${days}`);
 
 export default API;

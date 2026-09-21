@@ -11,6 +11,8 @@ import {
   GraduationCap,
   X,
   ChevronLeft,
+  Layers,
+  BarChart3,
 } from "lucide-react";
 import "./Sidebar.css";
 
@@ -19,8 +21,10 @@ const NAV_ITEMS = [
   { to: "/search", label: "Search", icon: Search },
   { to: "/upload", label: "Upload & Learn", icon: FileUp },
   { to: "/quiz", label: "Test", icon: HelpCircle },
+  { to: "/flashcards", label: "Flashcards", icon: Layers },
   { to: "/gaps", label: "Knowledge Gaps", icon: Target },
   { to: "/recommendations", label: "Recommendations", icon: Sparkles },
+  { to: "/analytics", label: "Analytics", icon: BarChart3 },
   { to: "/ai-tutor", label: "AI Tutor", icon: Bot },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
@@ -37,15 +41,14 @@ export default function Sidebar({
         collapsed ? "collapsed" : ""
       }`}
     >
-      {/* Brand row */}
       <div className="sidebar-brand">
         <div className="sidebar-brand-icon">
           <GraduationCap size={26} />
         </div>
         <span className="sidebar-brand-text">AI Study Assistant</span>
 
-        {/* Desktop toggle — hidden on mobile */}
         <button
+          type="button"
           className="sidebar-close"
           onClick={onClose}
           aria-label="Close menu"
@@ -54,7 +57,6 @@ export default function Sidebar({
         </button>
       </div>
 
-      {/* Nav */}
       <nav className="sidebar-nav">
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
@@ -76,8 +78,8 @@ export default function Sidebar({
         })}
       </nav>
 
-      {/* Floating collapse toggle — only on desktop */}
       <button
+        type="button"
         className="sidebar-toggle"
         onClick={onToggleCollapse}
         aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}

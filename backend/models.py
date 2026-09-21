@@ -355,3 +355,18 @@ class SearchHistory(Base):
 
     student = relationship("Student", overlaps="search_history")
     topic = relationship("Topic")
+class FlashcardSet(Base):
+    """Cached set of flashcards for a topic."""
+    __tablename__ = "flashcard_sets"
+    id = Column(Integer, primary_key=True, index=True)
+    topic_id = Column(
+        Integer, ForeignKey("topics.id"), nullable=False, unique=True, index=True
+    )
+    cards_json = Column(Text, nullable=False)  # JSON list of {front, back}
+    model_version = Column(String, default="")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    topic = relationship("Topic")

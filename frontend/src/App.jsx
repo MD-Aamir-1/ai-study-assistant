@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { ThemeProvider } from "./context/ThemeContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import useReminders from "./hooks/useReminders";
 import Layout from "./components/Layout";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Login from "./pages/Login";
@@ -10,12 +11,15 @@ import TopicView from "./pages/TopicView";
 import UploadLearn from "./pages/UploadLearn";
 import Quiz from "./pages/Quiz";
 import AITutor from "./pages/AITutor";
+import Flashcards from "./pages/Flashcards";
 import KnowledgeGaps from "./pages/KnowledgeGaps";
 import Recommendations from "./pages/Recommendations";
+import Analytics from "./pages/Analytics";
 import Settings from "./pages/Settings";
 
 function AppRoutes() {
   const { user } = useAuth();
+  useReminders();
 
   return (
     <Routes>
@@ -35,8 +39,10 @@ function AppRoutes() {
                 <Route path="/topic/:id" element={<TopicView />} />
                 <Route path="/upload" element={<UploadLearn />} />
                 <Route path="/quiz" element={<Quiz />} />
+                <Route path="/flashcards" element={<Flashcards />} />
                 <Route path="/gaps" element={<KnowledgeGaps />} />
                 <Route path="/recommendations" element={<Recommendations />} />
+                <Route path="/analytics" element={<Analytics />} />
                 <Route path="/ai-tutor" element={<AITutor />} />
                 <Route path="/settings" element={<Settings />} />
 
