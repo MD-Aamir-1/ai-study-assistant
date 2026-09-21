@@ -10,8 +10,8 @@ import Search from "./pages/Search";
 import TopicView from "./pages/TopicView";
 import UploadLearn from "./pages/UploadLearn";
 import Quiz from "./pages/Quiz";
-import AITutor from "./pages/AITutor";
 import Flashcards from "./pages/Flashcards";
+import AITutor from "./pages/AITutor";
 import KnowledgeGaps from "./pages/KnowledgeGaps";
 import Recommendations from "./pages/Recommendations";
 import Analytics from "./pages/Analytics";
@@ -23,11 +23,23 @@ function AppRoutes() {
 
   return (
     <Routes>
+      {/* Public */}
       <Route
         path="/login"
         element={user ? <Navigate to="/" replace /> : <Login />}
       />
 
+      {/* FULL-SCREEN AI Tutor — no Layout wrapper */}
+      <Route
+        path="/ai-tutor"
+        element={
+          <ProtectedRoute>
+            <AITutor />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Everything else inside the app Layout */}
       <Route
         path="/*"
         element={
@@ -41,9 +53,8 @@ function AppRoutes() {
                 <Route path="/quiz" element={<Quiz />} />
                 <Route path="/flashcards" element={<Flashcards />} />
                 <Route path="/gaps" element={<KnowledgeGaps />} />
-                <Route path="/recommendations" element={<Recommendations />} />
                 <Route path="/analytics" element={<Analytics />} />
-                <Route path="/ai-tutor" element={<AITutor />} />
+                <Route path="/recommendations" element={<Recommendations />} />
                 <Route path="/settings" element={<Settings />} />
 
                 <Route path="*" element={<Navigate to="/" replace />} />

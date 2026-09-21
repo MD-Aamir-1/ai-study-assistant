@@ -1,253 +1,348 @@
-import { useState } from "react";
+import { useState, memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
-import rehypeKatex from "rehype-katex";
-import rehypeHighlight from "rehype-highlight";
-import "katex/dist/katex.min.css";
-import "highlight.js/styles/github-dark.css";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { oneDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { useTheme } from "../context/ThemeContext";
 import {
   Copy,
   Check,
-  RotateCw,
+  RefreshCw,
   ThumbsUp,
   ThumbsDown,
   Pencil,
   Trash2,
-  X,
   Volume2,
   VolumeX,
+  FileText,
+  ChevronDown,
+  ChevronUp,
+  User,
 } from "lucide-react";
 import "./ChatMessageView.css";
 
-function CodeBlock({ inline, className, children, ...props }) {
+/* ---------- Code block ---------- */
+function CodeBlock({ language, value }) {
+  const { theme } = useTheme();
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
-  if (inline) {
-    return (
-      <code className="inline-code" {...props}>
-        {children}
-      </code>
-    );
-  }
+  const isLong = value.split("\n").length > 20;
+  const displayValue =
+    isLong && !expanded
+      ? value.split("\n").slice(0, 20).join("\n") + "\n..."
+      : value;
 
-  const match = /language-(\w+)/.exec(className || "");
-  const language = match?.[1] || "text";
-  const code = String(children).replace(/\n$/, "");
-  const lines = code.split("\n");
-  const isLong = lines.length > 20;
-
-  const copy = () => {
-    navigator.clipboard.writeText(code).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
-    });
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(value);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
   };
 
   return (
-    <div className="code-block">
-      <div className="code-block-header">
-        <span className="code-block-lang">{language}</span>
-        <div className="code-block-actions">
-          {isLong && (
-            <button
-              type="button"
-              className="code-action-btn"
-              onClick={() => setExpanded((e) => !e)}
-            >
-              {expanded ? "Collapse" : "Expand"}
-            </button>
-          )}
-          <button type="button" className="code-action-btn" onClick={copy}>
-            {copied ? <Check size={12} /> : <Copy size={12} />}
-            {copied ? "Copied" : "Copy"}
-          </button>
-        </div>
+    <div className="nv-code">
+      <div className="nv-code-head">
+        <span className="nv-code-lang">{language || "text"}</span>
+        <button
+          type="button"
+          className="nv-code-copy"
+          onClick={handleCopy}
+          aria-label="Copy code"
+        >
+          {copied ? <Check size={13} /> : <Copy size={13} />}
+          <span>{copied ? "Copied" : "Copy"}</span>
+        </button>
       </div>
-      <pre className={`code-block-body ${!expanded && isLong ? "collapsed" : ""}`}>
-        <code className={className} {...props}>
-          {children}
-        </code>
-      </pre>
+      <SyntaxHighlighter
+        language={language || "text"}
+        style={theme === "dark" ? oneDark : oneLight}
+        customStyle={{
+          margin: 0,
+          padding: "14px 16px",
+          background: "transparent",
+          fontSize: "13px",
+          lineHeight: "1.6",
+        }}
+        codeTagProps={{ style: { fontFamily: "inherit" } }}
+      >
+        {displayValue}
+      </SyntaxHighlighter>
+      {isLong && (
+        <button
+          type="button"
+          className="nv-code-expand"
+          onClick={() => setExpanded((e) => !e)}
+        >
+          {expanded ? (
+            <>
+              <ChevronUp size={13} /> Show less
+            </>
+          ) : (
+            <>
+              <ChevronDown size={13} /> Show more ({value.split("\n").length} lines)
+            </>
+          )}
+        </button>
+      )}
     </div>
   );
 }
 
-export default function ChatMessageView({
-  message,
-  onRegenerate,
-  onEdit,
-  onFeedback,
-  onDelete,
-  onSpeak,
-  isSpeaking,
-  isStreaming,
-}) {
-  const [copied, setCopied] = useState(false);
+/* ---------- User message ---------- */
+function UserMessage({ message, onEdit, onDelete }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(message.content);
+  const [copied, setCopied] = useState(false);
 
-  const isUser = message.role === "user";
-  const isAssistant = message.role === "assistant";
-
-  const copy = () => {
-    navigator.clipboard.writeText(message.content).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
-    });
+  const copy = async () => {
+    await navigator.clipboard.writeText(message.content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
   };
 
   const submitEdit = () => {
-    if (draft.trim() && draft.trim() !== message.content.trim()) {
-      onEdit?.(message.id, draft.trim());
+    const t = draft.trim();
+    if (!t || t === message.content) {
+      setEditing(false);
+      setDraft(message.content);
+      return;
     }
     setEditing(false);
+    onEdit?.(message.id, t);
   };
 
   return (
-    <div className={`msg-row ${isUser ? "msg-user" : "msg-assistant"}`}>
-      <div className="msg-bubble">
+    <div className="nv-msg nv-msg-user">
+      <div className="nv-msg-avatar nv-avatar-user">
+        <User size={14} />
+      </div>
+      <div className="nv-msg-body">
         {editing ? (
-          <div className="msg-edit">
+          <div className="nv-edit-wrap">
             <textarea
+              className="nv-edit-textarea"
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              rows={4}
               autoFocus
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  submitEdit();
+                }
+                if (e.key === "Escape") {
+                  setEditing(false);
+                  setDraft(message.content);
+                }
+              }}
             />
-            <div className="msg-edit-actions">
-              <button type="button" className="btn-xs" onClick={() => setEditing(false)}>
-                <X size={12} /> Cancel
+            <div className="nv-edit-actions">
+              <button
+                type="button"
+                className="nv-btn-ghost"
+                onClick={() => {
+                  setEditing(false);
+                  setDraft(message.content);
+                }}
+              >
+                Cancel
               </button>
               <button
                 type="button"
-                className="btn-xs btn-xs-primary"
+                className="nv-btn-primary"
                 onClick={submitEdit}
               >
-                <Check size={12} /> Save & Resend
+                Send
               </button>
             </div>
           </div>
         ) : (
           <>
-            {isAssistant && !message.content && isStreaming ? (
-              <div className="msg-typing">
-                <span></span>
-                <span></span>
-                <span></span>
-              </div>
-            ) : (
-              <div className="msg-content">
-                {isUser ? (
-                  <p className="msg-user-text">{message.content}</p>
-                ) : (
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm, remarkMath]}
-                    rehypePlugins={[rehypeKatex, rehypeHighlight]}
-                    components={{ code: CodeBlock }}
-                  >
-                    {message.content}
-                  </ReactMarkdown>
-                )}
-              </div>
-            )}
-
-            {isAssistant && message.content && !isStreaming && (
-              <div className="msg-actions">
+            <div className="nv-user-bubble">{message.content}</div>
+            <div className="nv-msg-actions nv-actions-user">
+              <button type="button" onClick={copy} title="Copy">
+                {copied ? <Check size={13} /> : <Copy size={13} />}
+              </button>
+              {onEdit && (
                 <button
                   type="button"
-                  className="msg-action"
-                  onClick={copy}
-                  title="Copy"
+                  onClick={() => setEditing(true)}
+                  title="Edit"
                 >
-                  {copied ? <Check size={13} /> : <Copy size={13} />}
+                  <Pencil size={13} />
                 </button>
-                {onSpeak && (
-                  <button
-                    type="button"
-                    className={`msg-action ${isSpeaking ? "active" : ""}`}
-                    onClick={() => onSpeak(message.id, message.content)}
-                    title={isSpeaking ? "Stop speaking" : "Read aloud"}
-                  >
-                    {isSpeaking ? <VolumeX size={13} /> : <Volume2 size={13} />}
-                  </button>
-                )}
-                {onRegenerate && (
-                  <button
-                    type="button"
-                    className="msg-action"
-                    onClick={() => onRegenerate(message.id)}
-                    title="Regenerate"
-                  >
-                    <RotateCw size={13} />
-                  </button>
-                )}
-                {onFeedback && (
-                  <>
-                    <button
-                      type="button"
-                      className={`msg-action ${message.feedback === "up" ? "active" : ""}`}
-                      onClick={() =>
-                        onFeedback(message.id, message.feedback === "up" ? "" : "up")
-                      }
-                      title="Good response"
-                    >
-                      <ThumbsUp size={13} />
-                    </button>
-                    <button
-                      type="button"
-                      className={`msg-action ${message.feedback === "down" ? "active down" : ""}`}
-                      onClick={() =>
-                        onFeedback(message.id, message.feedback === "down" ? "" : "down")
-                      }
-                      title="Bad response"
-                    >
-                      <ThumbsDown size={13} />
-                    </button>
-                  </>
-                )}
-                {onDelete && (
-                  <button
-                    type="button"
-                    className="msg-action"
-                    onClick={() => onDelete(message.id)}
-                    title="Delete"
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                )}
-              </div>
-            )}
-
-            {isUser && !isStreaming && (
-              <div className="msg-actions">
+              )}
+              {onDelete && (
                 <button
                   type="button"
-                  className="msg-action"
-                  onClick={copy}
-                  title="Copy"
+                  onClick={() => onDelete(message.id)}
+                  title="Delete"
                 >
-                  {copied ? <Check size={13} /> : <Copy size={13} />}
+                  <Trash2 size={13} />
                 </button>
-                {onEdit && (
-                  <button
-                    type="button"
-                    className="msg-action"
-                    onClick={() => {
-                      setDraft(message.content);
-                      setEditing(true);
-                    }}
-                    title="Edit & resend"
-                  >
-                    <Pencil size={13} />
-                  </button>
-                )}
-              </div>
-            )}
+              )}
+            </div>
           </>
         )}
       </div>
     </div>
   );
 }
+
+/* ---------- Assistant message ---------- */
+function AssistantMessage({
+  message,
+  isStreaming,
+  onRegenerate,
+  onFeedback,
+  onDelete,
+  onSpeak,
+  isSpeaking,
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    await navigator.clipboard.writeText(message.content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  const hasContent = !!message.content;
+
+  return (
+    <div className="nv-msg nv-msg-assistant">
+      <div className="nv-msg-avatar nv-avatar-assistant">N</div>
+      <div className="nv-msg-body">
+        {message.sources?.length > 0 && (
+          <div className="nv-sources">
+            {message.sources.map((s, i) => (
+              <div key={i} className="nv-source-chip" title={s.snippet}>
+                <FileText size={11} />
+                <span>{s.filename}</span>
+                <span className="nv-source-meta">· chunk {s.chunk_index}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="nv-md">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              code({ inline, className, children, ...props }) {
+                const match = /language-(\w+)/.exec(className || "");
+                const value = String(children).replace(/\n$/, "");
+                if (!inline && (match || value.includes("\n"))) {
+                  return <CodeBlock language={match?.[1]} value={value} />;
+                }
+                return (
+                  <code className="nv-inline-code" {...props}>
+                    {children}
+                  </code>
+                );
+              },
+            }}
+          >
+            {message.content || (isStreaming ? "" : "_(empty)_")}
+          </ReactMarkdown>
+          {isStreaming && <span className="nv-cursor" />}
+        </div>
+
+        {hasContent && !isStreaming && (
+          <div className="nv-msg-actions nv-actions-assistant">
+            <button type="button" onClick={copy} title="Copy">
+              {copied ? <Check size={13} /> : <Copy size={13} />}
+            </button>
+            {onRegenerate && (
+              <button
+                type="button"
+                onClick={() => onRegenerate(message.id)}
+                title="Regenerate"
+              >
+                <RefreshCw size={13} />
+              </button>
+            )}
+            {onSpeak && (
+              <button
+                type="button"
+                onClick={() => onSpeak(message.content, message.id)}
+                title={isSpeaking ? "Stop" : "Read aloud"}
+              >
+                {isSpeaking ? <VolumeX size={13} /> : <Volume2 size={13} />}
+              </button>
+            )}
+            {onFeedback && (
+              <>
+                <button
+                  type="button"
+                  className={message.feedback === "up" ? "active" : ""}
+                  onClick={() =>
+                    onFeedback(
+                      message.id,
+                      message.feedback === "up" ? "" : "up"
+                    )
+                  }
+                  title="Good response"
+                >
+                  <ThumbsUp size={13} />
+                </button>
+                <button
+                  type="button"
+                  className={message.feedback === "down" ? "active" : ""}
+                  onClick={() =>
+                    onFeedback(
+                      message.id,
+                      message.feedback === "down" ? "" : "down"
+                    )
+                  }
+                  title="Bad response"
+                >
+                  <ThumbsDown size={13} />
+                </button>
+              </>
+            )}
+            {onDelete && (
+              <button
+                type="button"
+                onClick={() => onDelete(message.id)}
+                title="Delete"
+              >
+                <Trash2 size={13} />
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Dispatcher ---------- */
+function ChatMessageView({
+  message,
+  isStreaming,
+  onRegenerate,
+  onEdit,
+  onFeedback,
+  onDelete,
+  onSpeak,
+  isSpeaking,
+}) {
+  if (message.role === "user") {
+    return (
+      <UserMessage message={message} onEdit={onEdit} onDelete={onDelete} />
+    );
+  }
+  return (
+    <AssistantMessage
+      message={message}
+      isStreaming={isStreaming}
+      onRegenerate={onRegenerate}
+      onFeedback={onFeedback}
+      onDelete={onDelete}
+      onSpeak={onSpeak}
+      isSpeaking={isSpeaking}
+    />
+  );
+}
+
+export default memo(ChatMessageView);

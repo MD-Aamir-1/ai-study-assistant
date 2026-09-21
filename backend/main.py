@@ -1,9 +1,12 @@
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from datetime import date as date_cls, timedelta, datetime
 from typing import Optional, Dict
+import json
+import re as _re
 
 from database import engine, Base, SessionLocal
 import models
@@ -13,7 +16,9 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="AI Study Assistant")
 
-# ---------- CORS ----------
+# ==================================================
+# CORS
+# ==================================================
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -28,6 +33,9 @@ app.add_middleware(
 )
 
 
+# ==================================================
+# DB Dependency
+# ==================================================
 def get_db():
     db = SessionLocal()
     try:
@@ -613,6 +621,148 @@ def dashboard_analytics(student_id: int, db: Session = Depends(get_db)):
 
 
 # ==================================================
+# ANALYTICS TIMELINE
+# ==================================================
+@app.get("/analytics/timeline/{student_id}")
+def analytics_timeline(student_id: int, days: int = 30, db: Session = Depends(get_db)):
+    student = db.query(models.Student).filter(models.Student.id == student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    today = date_cls.today()
+    start_date = today - timedelta(days=days - 1)
+
+    attempts = (
+        db.query(models.QuestionAttempt)
+        .filter(
+            models.QuestionAttempt.student_id == student_id,
+            models.QuestionAttempt.attempted_at >= start_date,
+        )
+        .all()
+    )
+
+    daily_map = {}
+    for a in attempts:
+        if not a.attempted_at:
+            continue
+        day = a.attempted_at.date()
+        key = str(day)
+        if key not in daily_map:
+            daily_map[key] = {"correct": 0, "total": 0, "sessions": set()}
+        daily_map[key]["total"] += 1
+        if a.is_correct:
+            daily_map[key]["correct"] += 1
+        if a.session_id:
+            daily_map[key]["sessions"].add(a.session_id)
+
+    daily_scores = []
+    for i in range(days):
+        d = start_date + timedelta(days=i)
+        key = str(d)
+        entry = daily_map.get(key)
+        if entry and entry["total"] > 0:
+            score = round((entry["correct"] / entry["total"]) * 100, 1)
+        else:
+            score = 0
+        daily_scores.append({
+            "date": key,
+            "label": d.strftime("%b %d"),
+            "score": score,
+            "questions": entry["total"] if entry else 0,
+            "tests": len(entry["sessions"]) if entry else 0,
+        })
+
+    stats = db.query(models.ConceptStat).filter(
+        models.ConceptStat.student_id == student_id
+    ).all()
+
+    weekly_concepts = {}
+    for s in stats:
+        if not s.last_updated:
+            continue
+        week_start = s.last_updated.date() - timedelta(days=s.last_updated.date().weekday())
+        key = str(week_start)
+        weekly_concepts[key] = weekly_concepts.get(key, 0) + 1
+
+    concepts_progress = []
+    for i in range(5, -1, -1):
+        week_start = today - timedelta(days=today.weekday() + 7 * i)
+        key = str(week_start)
+        concepts_progress.append({
+            "week": key,
+            "label": week_start.strftime("%b %d"),
+            "concepts": weekly_concepts.get(key, 0),
+        })
+
+    subjects = db.query(models.Subject).filter(
+        models.Subject.student_id == student_id
+    ).all()
+
+    topic_breakdown = []
+    for subject in subjects:
+        topics = db.query(models.Topic).filter(
+            models.Topic.subject_id == subject.id
+        ).all()
+
+        concept_scores = []
+        for topic in topics:
+            concepts = db.query(models.Concept).filter(
+                models.Concept.topic_id == topic.id
+            ).all()
+            for c in concepts:
+                stat = db.query(models.ConceptStat).filter(
+                    models.ConceptStat.student_id == student_id,
+                    models.ConceptStat.concept_id == c.id,
+                ).first()
+                if stat:
+                    concept_scores.append(stat.score)
+
+        avg = (
+            round(sum(concept_scores) / len(concept_scores), 1)
+            if concept_scores
+            else 0
+        )
+        topic_breakdown.append({
+            "subject_name": subject.name,
+            "avg_score": avg,
+            "concepts_count": len(concept_scores),
+        })
+
+    topic_breakdown.sort(key=lambda x: x["avg_score"], reverse=True)
+
+    total_questions = sum(d["questions"] for d in daily_scores)
+    total_tests = sum(d["tests"] for d in daily_scores)
+    active_days = sum(1 for d in daily_scores if d["questions"] > 0)
+    avg_score = (
+        round(
+            sum(d["score"] * d["questions"] for d in daily_scores) / total_questions,
+            1,
+        )
+        if total_questions
+        else 0
+    )
+
+    best_day = max(daily_scores, key=lambda d: d["score"]) if daily_scores else None
+    best_day = best_day if best_day and best_day["score"] > 0 else None
+
+    return {
+        "student_id": student_id,
+        "student_name": student.name,
+        "period_days": days,
+        "headline": {
+            "total_questions": total_questions,
+            "total_tests": total_tests,
+            "active_days": active_days,
+            "avg_score": avg_score,
+            "best_day": best_day,
+        },
+        "daily_scores": daily_scores,
+        "concepts_progress": concepts_progress,
+        "topic_breakdown": topic_breakdown,
+    }
+
+
+# ==================================================
 # ML RISK PREDICTION
 # ==================================================
 from ml_predictor import predict_risk
@@ -663,7 +813,7 @@ def ml_predict(student_id: int, db: Session = Depends(get_db)):
 
 
 # ==================================================
-# AI TUTOR
+# AI TUTOR (legacy for AI Study Assistant)
 # ==================================================
 from ai_tutor import ask_tutor, filter_weak_concepts
 from services.language_service import get_student_language
@@ -728,7 +878,6 @@ def ai_ask(req: AIAskRequest, db: Session = Depends(get_db)):
 # ==================================================
 # PHASE B — TOPIC SEARCH, CONTENT & CONCEPTS
 # ==================================================
-import json
 from services.content_service import (
     get_or_create_content,
     get_or_create_full,
@@ -1170,11 +1319,10 @@ def clear_search_history(student_id: int, db: Session = Depends(get_db)):
 
 
 # ==================================================
-# FILE UPLOAD + LEARN
+# FILE UPLOAD + LEARN FROM TEXT (AI Study Assistant)
 # ==================================================
 from services.file_service import extract_text
 from ai_tutor import get_client
-import re as _re
 
 
 @app.post("/files/extract")
@@ -1199,14 +1347,12 @@ async def extract_file_content(file: UploadFile = File(...)):
         "content_type": file.content_type,
         "source_type": result["source_type"],
         "pages": result["pages"],
+        "method": result.get("method", "unknown"),
         "text": result["text"],
         "char_count": len(result["text"]),
     }
 
 
-# ==================================================
-# ADAPTIVE PROMPT — follow user instruction EXACTLY
-# ==================================================
 LEARN_SYSTEM_PROMPT = """You are a helpful AI Study Tutor.
 
 The user has uploaded a file and given you an instruction.
@@ -1225,18 +1371,9 @@ CRITICAL: FOLLOW THE USER'S INSTRUCTION EXACTLY
 NEVER pad the response with sections the user did NOT ask for.
 NEVER force the full tutorial structure unless the user explicitly asked for it.
 Match the LENGTH of the response to what the instruction implies.
-Short instruction (e.g., "list applications") → short response.
-Long instruction (e.g., "write a detailed tutorial") → long response.
 
-═══════════════════════════════════════════════
-WHEN THE USER ASKS FOR A FULL TUTORIAL
-═══════════════════════════════════════════════
-
-Only use this structure when the user explicitly asks for a "tutorial",
-"detailed explanation", "complete guide", or "full overview":
-
+When the user asks for a full tutorial, use this structure:
 # <Topic Title>
-<2-3 sentence intro>
 ## What Is It?
 ## Why Does It Matter?
 ## Core Concepts / How It Works
@@ -1246,78 +1383,30 @@ Only use this structure when the user explicitly asks for a "tutorial",
 ## Advantages
 ## Disadvantages
 ## Common Mistakes
-## Comparison with Alternatives
 ## Key Takeaways
 ## Practice / Further Study
 
-When producing a full tutorial, target 2000-4000 words.
-
-═══════════════════════════════════════════════
-FORMATTING RULES (STRICT)
-═══════════════════════════════════════════════
-
-1. NO HTML TAGS AT ALL.
-   Never write <a name="...">...</a>, <div>, <span>, <br>, <p>, or any HTML.
-   Plain markdown only.
-
-2. MATH — use ONLY these forms:
-   - Inline short formulas: `y = mx + b` (inside backticks)
-   - Display formulas: $$formula$$ on its OWN line
-   - NEVER use \\( ... \\) inline math
-   - NEVER use \\[ ... \\] display math
-   - NEVER write \\mathbf{...} or \\text{...} around single letters
-   - Keep formulas simple — avoid complex LaTeX unless the topic requires it
-
-3. ACRONYMS — always write them correctly:
-   - AI (capital A, capital I) — NEVER "Al" (capital A, lowercase L)
-   - API, ML, DL, UI, DB, SQL, HTTP, REST
-
-4. TABLES — keep them SMALL:
-   - Maximum 6 rows per table
-   - Maximum 4 columns per table
-   - Every cell must be filled
-   - Never build a table with hundreds of rows
-
-5. NO DUPLICATED sections. Never repeat a heading.
-
-6. NO HTML ENTITIES. Write & (not &amp;), " (not &quot;), < (not &lt;).
-
-7. No section anchors, no table of contents markers, no HTML attributes.
-
-8. Never say "the source doesn't provide enough information". Teach what you know.
-
-End with one short follow-up question ONLY when producing a full tutorial.
+FORMATTING RULES (STRICT):
+1. NO HTML TAGS AT ALL. No <a name>, <div>, <span>, <br>, <p>.
+2. MATH — use ONLY: `inline` or $$display$$ on its own line.
+   NEVER use \\(...\\) or \\[...\\].
+3. Write "AI" correctly — never "Al".
+4. TABLES: max 6 rows × 4 columns.
+5. No duplicated sections.
+6. No HTML entities (&amp;amp;, &quot;, etc.).
 """
 
 
 def _clean_learn_output(text: str) -> str:
-    """
-    Post-process the LLM output to fix common issues:
-    - Remove HTML anchor tags
-    - Convert \\(...\\) → `...` and \\[...\\] → $$...$$
-    - Fix "Al" → "AI"
-    - Decode HTML entities
-    - Fix mangled tab-escapes in code
-    """
     if not text:
         return text
 
     s = text
-
-    # 1. Remove <a name="..."> </a> anchors
     s = _re.sub(r"<a\s+name=\"[^\"]*\"\s*>\s*</a>", "", s)
     s = _re.sub(r"<a\s+name='[^']*'\s*>\s*</a>", "", s)
-
-    # 2. Remove any remaining HTML tags (keep content)
     s = _re.sub(r"<[^>]+>", "", s)
-
-    # 3. Convert \( ... \) inline math → ` ... `
     s = _re.sub(r"\\\((.+?)\\\)", r"`\1`", s)
-
-    # 4. Convert \[ ... \] display math → $$ ... $$
     s = _re.sub(r"\\\[(.+?)\\\]", r"\n$$\1$$\n", s, flags=_re.DOTALL)
-
-    # 5. Decode HTML entities
     s = s.replace("&amp;amp;", "&")
     s = s.replace("&amp;", "&")
     s = s.replace("&quot;", '"')
@@ -1326,20 +1415,11 @@ def _clean_learn_output(text: str) -> str:
     s = s.replace("&lt;", "<")
     s = s.replace("&gt;", ">")
     s = s.replace("&nbsp;", " ")
-
-    # 6. Fix "Al" (A + lowercase L) → "AI" only when it's the whole word
-    #    (avoid accidentally touching words like "Algorithm" → check word boundary)
     s = _re.sub(r"\bAl\b", "AI", s)
-
-    # 7. Fix mangled \t escape patterns in code (rare but possible)
-    #    Example: "\tAI_System" → "AI_System"
     s = s.replace("\tAI_System", "AI_System")
     s = s.replace("\tInput Data", "Input Data")
     s = s.replace("\tModel Parameters", "Model Parameters")
-
-    # 8. Collapse any triple+ blank lines
     s = _re.sub(r"\n{4,}", "\n\n\n", s)
-
     return s.strip()
 
 
@@ -1372,9 +1452,8 @@ def learn_from_text(req: LearnFromTextRequest, db: Session = Depends(get_db)):
         f"did not ask for."
     )
 
-    # Inject language instruction if user is logged in
     if req.student_id:
-        from services.language_service import get_student_language, language_instruction
+        from services.language_service import language_instruction
         language = get_student_language(req.student_id, db)
         lang_note = language_instruction(language)
         if lang_note:
@@ -1395,7 +1474,6 @@ def learn_from_text(req: LearnFromTextRequest, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
 
-    # Post-process to clean up HTML anchors, math, entities, "Al"
     answer = _clean_learn_output(raw_answer)
 
     return {
@@ -1403,191 +1481,6 @@ def learn_from_text(req: LearnFromTextRequest, db: Session = Depends(get_db)):
         "answer": answer,
         "truncated": truncated,
         "source_chars": len(text),
-    }
-# ==================================================
-# FLASHCARDS
-# ==================================================
-FLASHCARD_SYSTEM_PROMPT = (
-    "You are an expert educator creating revision flashcards. "
-    "You always respond with valid JSON only. No markdown fences, no prose. "
-    "CRITICAL: Front is a question that tests recall; back is a concise answer."
-)
-
-FLASHCARD_PROMPT_TEMPLATE = """Create {num} flashcards for the topic "{topic}" (subject: "{subject}", difficulty: {difficulty}).
-
-The topic is broken into these concepts:
-{concept_list}
-
-═══════════════════════════════════════════════
-FLASHCARD RULES
-═══════════════════════════════════════════════
-
-Front (question side):
-- Short, clear question that tests recall or understanding
-- 1 sentence, ending with "?"
-- Vary the style: some "what", some "why", some "how", some "when to use"
-- Never a full scenario — keep it short
-
-Back (answer side):
-- 1-2 sentence answer, direct and clear
-- No fluff, no "In this context..."
-- Optionally include a tiny example
-
-Coverage:
-- Cover the concepts above roughly evenly
-- No two cards should test the same fact
-
-JSON Schema:
-{{
-  "cards": [
-    {{
-      "front": "Question ending with ?",
-      "back": "Concise answer.",
-      "concept_name": "Exact concept name from the list"
-    }}
-  ]
-}}
-
-Topic: {topic}
-"""
-
-
-class FlashcardGenerateRequest(BaseModel):
-    topic_id: int
-    num_cards: int = 10
-    force: bool = False
-
-
-@app.post("/flashcards/generate")
-def generate_flashcards_endpoint(
-    payload: FlashcardGenerateRequest, db: Session = Depends(get_db)
-):
-    topic = db.query(models.Topic).filter(models.Topic.id == payload.topic_id).first()
-    if not topic:
-        raise HTTPException(status_code=404, detail="Topic not found")
-
-    # Try cache unless forced
-    if not payload.force:
-        cached = (
-            db.query(models.FlashcardSet)
-            .filter(models.FlashcardSet.topic_id == payload.topic_id)
-            .first()
-        )
-        if cached:
-            try:
-                cards = json.loads(cached.cards_json)
-                return {
-                    "topic_id": topic.id,
-                    "topic_name": topic.name,
-                    "total": len(cards),
-                    "cards": cards,
-                    "cached": True,
-                }
-            except json.JSONDecodeError:
-                db.delete(cached)
-                db.commit()
-
-    # If forced, delete existing
-    if payload.force:
-        existing = (
-            db.query(models.FlashcardSet)
-            .filter(models.FlashcardSet.topic_id == payload.topic_id)
-            .first()
-        )
-        if existing:
-            db.delete(existing)
-            db.commit()
-
-    # Ensure concepts exist
-    from services.concept_service import get_or_create_concepts
-    concepts = get_or_create_concepts(payload.topic_id, db)
-
-    if not concepts:
-        raise HTTPException(status_code=400, detail="No concepts available for this topic")
-
-    subject = db.query(models.Subject).filter(models.Subject.id == topic.subject_id).first()
-    subject_name = subject.name if subject else "General"
-
-    concept_list = "\n".join(
-        f"{i + 1}. {c.name} — {c.description}" for i, c in enumerate(concepts)
-    )
-
-    prompt = FLASHCARD_PROMPT_TEMPLATE.format(
-        num=max(5, min(payload.num_cards, 20)),
-        topic=topic.name,
-        subject=subject_name,
-        difficulty=topic.difficulty or "medium",
-        concept_list=concept_list,
-    )
-
-    # Inject language
-    from services.language_service import (
-        get_topic_owner_language,
-        language_instruction,
-    )
-    language = get_topic_owner_language(payload.topic_id, db)
-    lang_note = language_instruction(language)
-    if lang_note:
-        prompt = prompt + lang_note
-
-    try:
-        from services.llm import call_llm_json, FAST_MODEL, DEFAULT_MODEL
-        try:
-            result = call_llm_json(
-                prompt,
-                system=FLASHCARD_SYSTEM_PROMPT,
-                temperature=0.6,
-                max_tokens=2500,
-                model=FAST_MODEL,
-            )
-        except Exception:
-            result = call_llm_json(
-                prompt,
-                system=FLASHCARD_SYSTEM_PROMPT,
-                temperature=0.6,
-                max_tokens=2500,
-                model=DEFAULT_MODEL,
-            )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Flashcard generation failed: {e}")
-
-    if not isinstance(result, dict) or "cards" not in result:
-        raise HTTPException(status_code=500, detail="LLM returned malformed flashcards")
-
-    cards = []
-    for c in result["cards"]:
-        if not isinstance(c, dict):
-            continue
-        front = (c.get("front") or "").strip()
-        back = (c.get("back") or "").strip()
-        if not front or not back:
-            continue
-        cards.append(
-            {
-                "front": front,
-                "back": back,
-                "concept_name": (c.get("concept_name") or "").strip(),
-            }
-        )
-
-    if not cards:
-        raise HTTPException(status_code=500, detail="LLM produced no valid flashcards")
-
-    # Save to cache
-    record = models.FlashcardSet(
-        topic_id=payload.topic_id,
-        cards_json=json.dumps(cards),
-        model_version="openai/gpt-oss-20b",
-    )
-    db.add(record)
-    db.commit()
-
-    return {
-        "topic_id": topic.id,
-        "topic_name": topic.name,
-        "total": len(cards),
-        "cards": cards,
-        "cached": False,
     }
 
 
@@ -1717,168 +1610,191 @@ def get_notifications(student_id: int, db: Session = Depends(get_db)):
         "total": len(notifications),
         "notifications": notifications,
     }
-# ==================================================
-# ANALYTICS TIMELINE
-# ==================================================
-@app.get("/analytics/timeline/{student_id}")
-def analytics_timeline(student_id: int, days: int = 30, db: Session = Depends(get_db)):
-    """
-    Return time-series analytics for the student.
-    - daily_scores: avg quiz score per day (last N days)
-    - activity: count of tests taken per day
-    - score_trend: rolling avg of score over time
-    - concepts_progress: new concepts tested per week
-    - topic_breakdown: score per subject
-    """
-    student = db.query(models.Student).filter(models.Student.id == student_id).first()
-    if not student:
-        raise HTTPException(status_code=404, detail="Student not found")
 
-    today = date_cls.today()
-    start_date = today - timedelta(days=days - 1)
 
-    # ---------- Daily activity & avg score ----------
-    # Group question attempts by day
-    attempts = (
-        db.query(models.QuestionAttempt)
-        .filter(
-            models.QuestionAttempt.student_id == student_id,
-            models.QuestionAttempt.attempted_at >= start_date,
+# ==================================================
+# FLASHCARDS
+# ==================================================
+FLASHCARD_SYSTEM_PROMPT = (
+    "You are an expert educator creating revision flashcards. "
+    "You always respond with valid JSON only. No markdown fences, no prose. "
+    "CRITICAL: Front is a question that tests recall; back is a concise answer."
+)
+
+FLASHCARD_PROMPT_TEMPLATE = """Create {num} flashcards for the topic "{topic}" (subject: "{subject}", difficulty: {difficulty}).
+
+The topic is broken into these concepts:
+{concept_list}
+
+FLASHCARD RULES:
+Front: Short question testing recall/understanding. 1 sentence ending with "?".
+Back: 1-2 sentence answer, direct and clear.
+Cover the concepts above roughly evenly.
+
+JSON Schema:
+{{
+  "cards": [
+    {{
+      "front": "Question ending with ?",
+      "back": "Concise answer.",
+      "concept_name": "Exact concept name from the list"
+    }}
+  ]
+}}
+
+Topic: {topic}
+"""
+
+
+class FlashcardGenerateRequest(BaseModel):
+    topic_id: int
+    num_cards: int = 10
+    force: bool = False
+
+
+@app.post("/flashcards/generate")
+def generate_flashcards_endpoint(
+    payload: FlashcardGenerateRequest, db: Session = Depends(get_db)
+):
+    topic = db.query(models.Topic).filter(models.Topic.id == payload.topic_id).first()
+    if not topic:
+        raise HTTPException(status_code=404, detail="Topic not found")
+
+    if not payload.force:
+        cached = (
+            db.query(models.FlashcardSet)
+            .filter(models.FlashcardSet.topic_id == payload.topic_id)
+            .first()
         )
-        .all()
+        if cached:
+            try:
+                cards = json.loads(cached.cards_json)
+                return {
+                    "topic_id": topic.id,
+                    "topic_name": topic.name,
+                    "total": len(cards),
+                    "cards": cards,
+                    "cached": True,
+                }
+            except json.JSONDecodeError:
+                db.delete(cached)
+                db.commit()
+
+    if payload.force:
+        existing = (
+            db.query(models.FlashcardSet)
+            .filter(models.FlashcardSet.topic_id == payload.topic_id)
+            .first()
+        )
+        if existing:
+            db.delete(existing)
+            db.commit()
+
+    concepts = get_or_create_concepts(payload.topic_id, db)
+
+    if not concepts:
+        raise HTTPException(status_code=400, detail="No concepts available for this topic")
+
+    subject = db.query(models.Subject).filter(models.Subject.id == topic.subject_id).first()
+    subject_name = subject.name if subject else "General"
+
+    concept_list = "\n".join(
+        f"{i + 1}. {c.name} — {c.description}" for i, c in enumerate(concepts)
     )
 
-    daily_map = {}  # "YYYY-MM-DD" -> { correct, total, sessions: set }
-    for a in attempts:
-        if not a.attempted_at:
-            continue
-        day = a.attempted_at.date()
-        key = str(day)
-        if key not in daily_map:
-            daily_map[key] = {"correct": 0, "total": 0, "sessions": set()}
-        daily_map[key]["total"] += 1
-        if a.is_correct:
-            daily_map[key]["correct"] += 1
-        if a.session_id:
-            daily_map[key]["sessions"].add(a.session_id)
-
-    daily_scores = []
-    for i in range(days):
-        d = start_date + timedelta(days=i)
-        key = str(d)
-        entry = daily_map.get(key)
-        if entry and entry["total"] > 0:
-            score = round((entry["correct"] / entry["total"]) * 100, 1)
-        else:
-            score = 0
-        daily_scores.append({
-            "date": key,
-            "label": d.strftime("%b %d"),
-            "score": score,
-            "questions": entry["total"] if entry else 0,
-            "tests": len(entry["sessions"]) if entry else 0,
-        })
-
-    # ---------- Weekly concept progress ----------
-    # Count first-time appearances of concept_stats per week
-    stats = db.query(models.ConceptStat).filter(
-        models.ConceptStat.student_id == student_id
-    ).all()
-
-    # Use last_updated as approximate "first seen" date
-    weekly_concepts = {}
-    for s in stats:
-        if not s.last_updated:
-            continue
-        # Get Monday of the week
-        week_start = s.last_updated.date() - timedelta(days=s.last_updated.date().weekday())
-        key = str(week_start)
-        weekly_concepts[key] = weekly_concepts.get(key, 0) + 1
-
-    concepts_progress = []
-    for i in range(5, -1, -1):  # last 6 weeks
-        week_start = today - timedelta(days=today.weekday() + 7 * i)
-        key = str(week_start)
-        concepts_progress.append({
-            "week": key,
-            "label": week_start.strftime("%b %d"),
-            "concepts": weekly_concepts.get(key, 0),
-        })
-
-    # ---------- Topic breakdown ----------
-    subjects = db.query(models.Subject).filter(
-        models.Subject.student_id == student_id
-    ).all()
-
-    topic_breakdown = []
-    for subject in subjects:
-        topics = db.query(models.Topic).filter(
-            models.Topic.subject_id == subject.id
-        ).all()
-
-        concept_scores = []
-        for topic in topics:
-            concepts = db.query(models.Concept).filter(
-                models.Concept.topic_id == topic.id
-            ).all()
-            for c in concepts:
-                stat = db.query(models.ConceptStat).filter(
-                    models.ConceptStat.student_id == student_id,
-                    models.ConceptStat.concept_id == c.id,
-                ).first()
-                if stat:
-                    concept_scores.append(stat.score)
-
-        avg = (
-            round(sum(concept_scores) / len(concept_scores), 1)
-            if concept_scores
-            else 0
-        )
-        topic_breakdown.append({
-            "subject_name": subject.name,
-            "avg_score": avg,
-            "concepts_count": len(concept_scores),
-        })
-
-    # Sort descending by avg
-    topic_breakdown.sort(key=lambda x: x["avg_score"], reverse=True)
-
-    # ---------- Headline stats ----------
-    total_questions = sum(d["questions"] for d in daily_scores)
-    total_tests = sum(d["tests"] for d in daily_scores)
-    active_days = sum(1 for d in daily_scores if d["questions"] > 0)
-    avg_score = (
-        round(
-            sum(d["score"] * d["questions"] for d in daily_scores) / total_questions,
-            1,
-        )
-        if total_questions
-        else 0
+    prompt = FLASHCARD_PROMPT_TEMPLATE.format(
+        num=max(5, min(payload.num_cards, 20)),
+        topic=topic.name,
+        subject=subject_name,
+        difficulty=topic.difficulty or "medium",
+        concept_list=concept_list,
     )
 
-    # Best day
-    best_day = max(daily_scores, key=lambda d: d["score"]) if daily_scores else None
-    best_day = best_day if best_day and best_day["score"] > 0 else None
+    from services.language_service import language_instruction
+    language = get_student_language_by_topic(payload.topic_id, db)
+    lang_note = language_instruction(language)
+    if lang_note:
+        prompt = prompt + lang_note
+
+    try:
+        from services.llm import call_llm_json, FAST_MODEL, DEFAULT_MODEL
+        try:
+            result = call_llm_json(
+                prompt,
+                system=FLASHCARD_SYSTEM_PROMPT,
+                temperature=0.6,
+                max_tokens=2500,
+                model=FAST_MODEL,
+            )
+        except Exception:
+            result = call_llm_json(
+                prompt,
+                system=FLASHCARD_SYSTEM_PROMPT,
+                temperature=0.6,
+                max_tokens=2500,
+                model=DEFAULT_MODEL,
+            )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Flashcard generation failed: {e}")
+
+    if not isinstance(result, dict) or "cards" not in result:
+        raise HTTPException(status_code=500, detail="LLM returned malformed flashcards")
+
+    cards = []
+    for c in result["cards"]:
+        if not isinstance(c, dict):
+            continue
+        front = (c.get("front") or "").strip()
+        back = (c.get("back") or "").strip()
+        if not front or not back:
+            continue
+        cards.append(
+            {
+                "front": front,
+                "back": back,
+                "concept_name": (c.get("concept_name") or "").strip(),
+            }
+        )
+
+    if not cards:
+        raise HTTPException(status_code=500, detail="LLM produced no valid flashcards")
+
+    record = models.FlashcardSet(
+        topic_id=payload.topic_id,
+        cards_json=json.dumps(cards),
+        model_version="openai/gpt-oss-20b",
+    )
+    db.add(record)
+    db.commit()
 
     return {
-        "student_id": student_id,
-        "student_name": student.name,
-        "period_days": days,
-        "headline": {
-            "total_questions": total_questions,
-            "total_tests": total_tests,
-            "active_days": active_days,
-            "avg_score": avg_score,
-            "best_day": best_day,
-        },
-        "daily_scores": daily_scores,
-        "concepts_progress": concepts_progress,
-        "topic_breakdown": topic_breakdown,
+        "topic_id": topic.id,
+        "topic_name": topic.name,
+        "total": len(cards),
+        "cards": cards,
+        "cached": False,
     }
+
+
+def get_student_language_by_topic(topic_id: int, db: Session) -> str:
+    try:
+        topic = db.query(models.Topic).filter(models.Topic.id == topic_id).first()
+        if not topic:
+            return "en"
+        subject = db.query(models.Subject).filter(models.Subject.id == topic.subject_id).first()
+        if not subject:
+            return "en"
+        student = db.query(models.Student).filter(models.Student.id == subject.student_id).first()
+        if student and student.preferred_language:
+            return student.preferred_language
+    except Exception:
+        pass
+    return "en"
+
+
 # ==================================================
-# NOVAAI CHAT
+# NOVAAI CHAT — Models
 # ==================================================
-from fastapi.responses import StreamingResponse
 from services import chat_service
 
 
@@ -1903,7 +1819,7 @@ class ChatSendRequest(BaseModel):
 
 class MessageFeedback(BaseModel):
     student_id: int
-    feedback: str  # "up" | "down" | ""
+    feedback: str
 
 
 @app.get("/chat/models")
@@ -1911,7 +1827,6 @@ def chat_models():
     return {"models": chat_service.list_models(), "default": chat_service.DEFAULT_MODEL}
 
 
-# ---------- List conversations ----------
 @app.get("/chat/conversations")
 def list_conversations(student_id: int, q: str = "", db: Session = Depends(get_db)):
     query = db.query(models.Conversation).filter(
@@ -1920,7 +1835,6 @@ def list_conversations(student_id: int, q: str = "", db: Session = Depends(get_d
     )
 
     if q.strip():
-        # Search title OR messages
         like = f"%{q.strip()}%"
         from sqlalchemy import or_
         query = query.outerjoin(
@@ -1963,7 +1877,6 @@ def list_conversations(student_id: int, q: str = "", db: Session = Depends(get_d
     return {"conversations": result}
 
 
-# ---------- Create conversation ----------
 @app.post("/chat/conversations")
 def create_conversation(payload: ConversationCreate, db: Session = Depends(get_db)):
     student = db.query(models.Student).filter(models.Student.id == payload.student_id).first()
@@ -1987,7 +1900,6 @@ def create_conversation(payload: ConversationCreate, db: Session = Depends(get_d
     }
 
 
-# ---------- Get one conversation with messages ----------
 @app.get("/chat/conversations/{conv_id}")
 def get_conversation(conv_id: int, student_id: int, db: Session = Depends(get_db)):
     conv = db.query(models.Conversation).filter(
@@ -2024,7 +1936,6 @@ def get_conversation(conv_id: int, student_id: int, db: Session = Depends(get_db
     }
 
 
-# ---------- Update conversation ----------
 @app.patch("/chat/conversations/{conv_id}")
 def update_conversation(
     conv_id: int,
@@ -2052,7 +1963,6 @@ def update_conversation(
     return {"ok": True}
 
 
-# ---------- Delete conversation ----------
 @app.delete("/chat/conversations/{conv_id}")
 def delete_conversation(conv_id: int, student_id: int, db: Session = Depends(get_db)):
     conv = db.query(models.Conversation).filter(
@@ -2067,7 +1977,6 @@ def delete_conversation(conv_id: int, student_id: int, db: Session = Depends(get
     return {"ok": True}
 
 
-# ---------- Feedback on a message ----------
 @app.patch("/chat/messages/{msg_id}/feedback")
 def message_feedback(
     msg_id: int,
@@ -2078,7 +1987,6 @@ def message_feedback(
     if not msg:
         raise HTTPException(status_code=404, detail="Message not found")
 
-    # Make sure this message belongs to the given student
     conv = db.query(models.Conversation).filter(
         models.Conversation.id == msg.conversation_id,
         models.Conversation.student_id == payload.student_id,
@@ -2094,7 +2002,6 @@ def message_feedback(
     return {"ok": True, "feedback": msg.feedback}
 
 
-# ---------- Delete a message ----------
 @app.delete("/chat/messages/{msg_id}")
 def delete_message(msg_id: int, student_id: int, db: Session = Depends(get_db)):
     msg = db.query(models.ChatMessage).filter(models.ChatMessage.id == msg_id).first()
@@ -2114,10 +2021,214 @@ def delete_message(msg_id: int, student_id: int, db: Session = Depends(get_db)):
 
 
 # ==================================================
-# STREAMING ENDPOINT
+# RAG — ATTACHMENTS
+# ==================================================
+from services.rag_service import (
+    store_document_chunks,
+    retrieve_relevant_chunks,
+    build_context_block,
+)
+
+
+@app.post("/chat/conversations/{conv_id}/attachments")
+async def upload_attachment(
+    conv_id: int,
+    student_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    conv = db.query(models.Conversation).filter(
+        models.Conversation.id == conv_id,
+        models.Conversation.student_id == student_id,
+    ).first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    contents = await file.read()
+    if len(contents) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large. Max 10 MB.")
+    if not contents:
+        raise HTTPException(status_code=400, detail="Empty file.")
+
+    try:
+        extraction = extract_text(
+            contents, file.content_type or "", file.filename or ""
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Extraction failed: {e}")
+
+    text = (extraction.get("text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="No readable text found in file.")
+
+    attachment = models.ChatAttachment(
+        conversation_id=conv_id,
+        filename=file.filename or "document",
+        mime_type=file.content_type or "",
+        size_bytes=len(contents),
+        source_type=extraction.get("source_type", "text"),
+        text_content=text[:20000],
+        chunk_count=0,
+    )
+    db.add(attachment)
+    db.commit()
+    db.refresh(attachment)
+
+    try:
+        count = store_document_chunks(attachment, text, db)
+        attachment.chunk_count = count
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        try:
+            att = db.query(models.ChatAttachment).filter(
+                models.ChatAttachment.id == attachment.id
+            ).first()
+            if att:
+                db.delete(att)
+                db.commit()
+        except Exception:
+            db.rollback()
+        raise HTTPException(status_code=500, detail=f"Embedding failed: {e}")
+
+    return {
+        "id": attachment.id,
+        "filename": attachment.filename,
+        "source_type": attachment.source_type,
+        "size_bytes": attachment.size_bytes,
+        "chunk_count": attachment.chunk_count,
+        "method": extraction.get("method", "unknown"),
+        "text_length": len(text),
+        "created_at": attachment.created_at.isoformat() if attachment.created_at else None,
+    }
+
+
+@app.get("/chat/conversations/{conv_id}/attachments")
+def list_attachments(conv_id: int, student_id: int, db: Session = Depends(get_db)):
+    conv = db.query(models.Conversation).filter(
+        models.Conversation.id == conv_id,
+        models.Conversation.student_id == student_id,
+    ).first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    rows = (
+        db.query(models.ChatAttachment)
+        .filter(models.ChatAttachment.conversation_id == conv_id)
+        .order_by(models.ChatAttachment.id.asc())
+        .all()
+    )
+
+    return {
+        "attachments": [
+            {
+                "id": a.id,
+                "filename": a.filename,
+                "source_type": a.source_type,
+                "size_bytes": a.size_bytes,
+                "chunk_count": a.chunk_count,
+                "created_at": a.created_at.isoformat() if a.created_at else None,
+            }
+            for a in rows
+        ]
+    }
+
+
+@app.delete("/chat/attachments/{attachment_id}")
+def delete_attachment(
+    attachment_id: int, student_id: int, db: Session = Depends(get_db)
+):
+    att = (
+        db.query(models.ChatAttachment)
+        .filter(models.ChatAttachment.id == attachment_id)
+        .first()
+    )
+    if not att:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+
+    conv = db.query(models.Conversation).filter(
+        models.Conversation.id == att.conversation_id,
+        models.Conversation.student_id == student_id,
+    ).first()
+    if not conv:
+        raise HTTPException(status_code=403, detail="Not allowed")
+
+    db.delete(att)
+    db.commit()
+    return {"ok": True}
+
+
+# ==================================================
+# DEBUG — inspect extraction + chunking
+# ==================================================
+@app.get("/chat/attachments/{attachment_id}/debug")
+def debug_attachment(attachment_id: int, db: Session = Depends(get_db)):
+    att = (
+        db.query(models.ChatAttachment)
+        .filter(models.ChatAttachment.id == attachment_id)
+        .first()
+    )
+    if not att:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+
+    chunks = (
+        db.query(models.DocumentChunk)
+        .filter(models.DocumentChunk.attachment_id == attachment_id)
+        .order_by(models.DocumentChunk.chunk_index.asc())
+        .all()
+    )
+
+    return {
+        "attachment_id": att.id,
+        "filename": att.filename,
+        "source_type": att.source_type,
+        "size_bytes": att.size_bytes,
+        "chunk_count": att.chunk_count,
+        "text_length": len(att.text_content or ""),
+        "text_first_500": (att.text_content or "")[:500],
+        "text_last_500": (att.text_content or "")[-500:],
+        "chunks": [
+            {
+                "index": c.chunk_index,
+                "length": len(c.content),
+                "preview": c.content[:200],
+            }
+            for c in chunks[:10]
+        ],
+    }
+
+
+# ==================================================
+# NOVAAI CHAT — Streaming
 # ==================================================
 def _sse(payload: dict) -> str:
     return f"data: {json.dumps(payload)}\n\n"
+
+
+# ---- HTML cleanup for streamed LLM output ----
+# Replace <br> with a space (not \n) so Markdown tables stay intact.
+_BR_RE = _re.compile(r"<br\s*/?>", _re.IGNORECASE)
+_HTML_TAG_RE = _re.compile(
+    r"</?(?:div|span|p|a|b|i|u|strong|em|ul|ol|li|table|tr|td|th|h[1-6]|font|section|article|header|footer|nav|main|aside)\b[^>]*>",
+    _re.IGNORECASE,
+)
+
+
+def _strip_html_streaming(text: str) -> str:
+    """Remove HTML the LLM sometimes emits — <br> → space, other tags removed."""
+    if not text:
+        return text
+    text = _BR_RE.sub(" ", text)
+    text = _HTML_TAG_RE.sub("", text)
+    text = text.replace("&nbsp;", " ")
+    text = text.replace("&amp;", "&")
+    text = text.replace("&lt;", "<")
+    text = text.replace("&gt;", ">")
+    text = text.replace("&quot;", '"')
+    text = text.replace("&#39;", "'")
+    return text
 
 
 @app.post("/chat/conversations/{conv_id}/stream")
@@ -2128,6 +2239,8 @@ def stream_chat(
 ):
     """
     Sends a message and streams the AI response back via SSE.
+    If the conversation has attachments, retrieves relevant chunks
+    and injects them as grounded context.
     """
     conv = db.query(models.Conversation).filter(
         models.Conversation.id == conv_id,
@@ -2142,6 +2255,10 @@ def stream_chat(
 
     model_id = payload.model or conv.model or chat_service.DEFAULT_MODEL
 
+    # ---------- RAG retrieval ----------
+    chunks = retrieve_relevant_chunks(conv_id, user_text, top_k=4, db=db)
+    context_block = build_context_block(chunks)
+
     # ---------- Save user message ----------
     user_msg = models.ChatMessage(
         conversation_id=conv.id,
@@ -2151,7 +2268,6 @@ def stream_chat(
     )
     db.add(user_msg)
 
-    # ---------- Auto-title if this is the first message ----------
     existing_count = (
         db.query(models.ChatMessage)
         .filter(models.ChatMessage.conversation_id == conv.id)
@@ -2164,12 +2280,11 @@ def stream_chat(
         except Exception:
             pass
 
-    # bump updated_at
     conv.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(user_msg)
 
-    # ---------- Fetch history (exclude the just-saved message from prior history) ----------
+    # ---------- Fetch history ----------
     history = (
         db.query(models.ChatMessage)
         .filter(
@@ -2180,8 +2295,9 @@ def stream_chat(
         .all()
     )
 
-    # Build messages for the LLM
-    llm_messages = chat_service.build_messages(conv, history, user_text)
+    llm_messages = chat_service.build_messages(
+        conv, history, user_text, context_note=context_block
+    )
 
     # ---------- Stream ----------
     def event_gen():
@@ -2192,11 +2308,52 @@ def stream_chat(
             yield _sse({"type": "user_message_id", "id": user_msg.id})
             yield _sse({"type": "title", "title": conv.title})
 
-            for delta in chat_service.stream_completion(model_id, llm_messages):
-                full_response += delta
-                yield _sse({"type": "delta", "content": delta})
+            if chunks:
+                yield _sse({
+                    "type": "sources",
+                    "sources": [
+                        {
+                            "filename": c["filename"],
+                            "chunk_index": c["chunk_index"],
+                            "score": c["score"],
+                            "snippet": c["content"][:180],
+                        }
+                        for c in chunks
+                    ],
+                })
 
-            # Save assistant message with a fresh session (main db might be closed)
+            # Stream with a small buffer so HTML tags split across
+            # chunks are still caught and stripped correctly.
+            stream_buffer = ""
+
+            for delta in chat_service.stream_completion(model_id, llm_messages):
+                stream_buffer += delta
+
+                # If the buffer ends with an incomplete "<...", hold it back
+                last_lt = stream_buffer.rfind("<")
+                last_gt = stream_buffer.rfind(">")
+
+                if last_lt > last_gt:
+                    # Incomplete tag at the end — hold it for the next chunk
+                    safe = stream_buffer[:last_lt]
+                    stream_buffer = stream_buffer[last_lt:]
+                else:
+                    safe = stream_buffer
+                    stream_buffer = ""
+
+                if safe:
+                    cleaned = _strip_html_streaming(safe)
+                    if cleaned:
+                        full_response += cleaned
+                        yield _sse({"type": "delta", "content": cleaned})
+
+            # Flush whatever is left in the buffer
+            if stream_buffer:
+                cleaned = _strip_html_streaming(stream_buffer)
+                if cleaned:
+                    full_response += cleaned
+                    yield _sse({"type": "delta", "content": cleaned})
+
             from database import SessionLocal as _SL
             fresh = _SL()
             try:
@@ -2207,7 +2364,6 @@ def stream_chat(
                     model=model_id,
                 )
                 fresh.add(assistant_msg)
-                # Update conversation timestamp
                 _conv = fresh.query(models.Conversation).filter(
                     models.Conversation.id == conv.id
                 ).first()

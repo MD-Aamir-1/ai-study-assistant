@@ -10,6 +10,9 @@ import {
   sendMessageFeedback,
   deleteMessage,
   streamChatMessage,
+  uploadChatAttachment,
+  listChatAttachments,
+  deleteChatAttachment,
 } from "../api/client";
 import ChatMessageView from "../components/ChatMessageView";
 import useVoiceInput from "../hooks/useVoiceInput";
@@ -26,6 +29,7 @@ import {
   Square,
   Sparkles,
   ChevronDown,
+  ChevronLeft,
   Menu,
   X,
   Loader2,
@@ -37,10 +41,13 @@ import {
   PenTool,
   Mic,
   MicOff,
+  Paperclip,
+  File as FileIcon,
 } from "lucide-react";
 import "./AITutor.css";
 
 const DEFAULT_MODEL = "nova-balanced";
+const SIDEBAR_KEY = "nova_sidebar_collapsed";
 
 const SUGGESTIONS = [
   { icon: Lightbulb, label: "Explain a concept", prompt: "Explain quantum computing in simple terms." },
@@ -64,38 +71,52 @@ export default function AITutor() {
   const [input, setInput] = useState("");
   const [error, setError] = useState("");
 
+  // Sidebar (mobile drawer)
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Sidebar (desktop collapse)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    return localStorage.getItem(SIDEBAR_KEY) === "true";
+  });
+
   const [searchQuery, setSearchQuery] = useState("");
   const [searchTimer, setSearchTimer] = useState(null);
   const [menuConvId, setMenuConvId] = useState(null);
   const [renamingId, setRenamingId] = useState(null);
   const [renameValue, setRenameValue] = useState("");
 
+  // Attachments
+  const [attachments, setAttachments] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState("");
+
   const abortRef = useRef(null);
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
+  const fileInputRef = useRef(null);
 
-  // ---------- Voice input ----------
+  // Persist collapse state
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_KEY, sidebarCollapsed ? "true" : "false");
+  }, [sidebarCollapsed]);
+
+  // Voice
   const voiceInput = useVoiceInput({
     onResult: (text) => {
-      // Append recognized text to the current input
       setInput((prev) => (prev ? `${prev} ${text}` : text));
-      // Focus the textarea so user can hit Enter
       setTimeout(() => textareaRef.current?.focus(), 50);
     },
   });
-
-  // ---------- Voice output ----------
   const voiceOutput = useVoiceOutput();
 
-  // ---------- Load models ----------
+  // Load models
   useEffect(() => {
     getChatModels()
       .then((res) => setModels(res.data.models || []))
       .catch(() => {});
   }, []);
 
-  // ---------- Load conversations ----------
+  // Load conversations
   useEffect(() => {
     if (!user?.student_id) return;
     loadConversations();
@@ -123,12 +144,21 @@ export default function AITutor() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery]);
 
-  // ---------- Load a conversation ----------
+  // Load attachments on conversation switch
+  useEffect(() => {
+    if (!activeConvId || !user?.student_id) {
+      setAttachments([]);
+      return;
+    }
+    listChatAttachments(activeConvId, user.student_id)
+      .then((res) => setAttachments(res.data.attachments || []))
+      .catch(() => setAttachments([]));
+  }, [activeConvId, user?.student_id]);
+
   const openConversation = async (convId) => {
     setActiveConvId(convId);
     setSidebarOpen(false);
     setError("");
-    // Stop any ongoing speech
     voiceOutput.stop();
     try {
       const res = await getConversation(convId, user.student_id);
@@ -150,6 +180,7 @@ export default function AITutor() {
     setInput("");
     setError("");
     setSidebarOpen(false);
+    setAttachments([]);
     voiceOutput.stop();
   };
 
@@ -171,7 +202,67 @@ export default function AITutor() {
     return res.data.id;
   };
 
-  // ---------- Send message ----------
+  // Sidebar toggle: mobile drawer vs desktop collapse
+  const handleSidebarToggle = () => {
+    if (window.innerWidth < 900) {
+      setSidebarOpen((o) => !o);
+    } else {
+      setSidebarCollapsed((c) => !c);
+    }
+  };
+
+  // File upload
+  const handleFileSelect = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await uploadFile(file);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const uploadFile = async (file) => {
+    if (!file) return;
+
+    if (file.size > 10 * 1024 * 1024) {
+      setError("File too large. Max 10 MB.");
+      return;
+    }
+
+    setUploading(true);
+    setUploadProgress("Uploading...");
+    setError("");
+
+    try {
+      const convId = await ensureConversation();
+      setUploadProgress("Extracting text and generating embeddings...");
+      const res = await uploadChatAttachment(convId, user.student_id, file);
+      setAttachments((prev) => [...prev, res.data]);
+      setUploadProgress("");
+    } catch (err) {
+      const msg =
+        err.response?.data?.detail ||
+        "Could not process this file. Try a different one.";
+      setError(msg);
+      setUploadProgress("");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (file) await uploadFile(file);
+  };
+
+  const handleRemoveAttachment = async (attachmentId) => {
+    try {
+      await deleteChatAttachment(attachmentId, user.student_id);
+      setAttachments((prev) => prev.filter((a) => a.id !== attachmentId));
+    } catch {
+      setError("Could not remove file.");
+    }
+  };
+
   const sendMessage = async (overrideText) => {
     const text = (overrideText ?? input).trim();
     if (!text || streaming) return;
@@ -186,7 +277,13 @@ export default function AITutor() {
     setMessages((prev) => [
       ...prev,
       { id: tempUserId, role: "user", content: text, feedback: "" },
-      { id: tempAssistantId, role: "assistant", content: "", feedback: "" },
+      {
+        id: tempAssistantId,
+        role: "assistant",
+        content: "",
+        feedback: "",
+        sources: [],
+      },
     ]);
 
     setStreaming(true);
@@ -223,6 +320,15 @@ export default function AITutor() {
             setConversations((prev) =>
               prev.map((c) =>
                 c.id === convId ? { ...c, title: data.title } : c
+              )
+            );
+          },
+          sources: (data) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === tempAssistantId
+                  ? { ...m, sources: data.sources || [] }
+                  : m
               )
             );
           },
@@ -278,7 +384,6 @@ export default function AITutor() {
     }
   };
 
-  // Auto-resize textarea
   useEffect(() => {
     const ta = textareaRef.current;
     if (!ta) return;
@@ -286,7 +391,6 @@ export default function AITutor() {
     ta.style.height = Math.min(ta.scrollHeight, 200) + "px";
   }, [input]);
 
-  // ---------- Regenerate ----------
   const handleRegenerate = async (assistantMsgId) => {
     if (streaming) return;
     const idx = messages.findIndex((m) => m.id === assistantMsgId);
@@ -305,7 +409,6 @@ export default function AITutor() {
     await sendMessage(userText);
   };
 
-  // ---------- Edit & resend ----------
   const handleEditMessage = async (msgId, newContent) => {
     if (streaming) return;
     const idx = messages.findIndex((m) => m.id === msgId);
@@ -315,7 +418,6 @@ export default function AITutor() {
     await sendMessage(newContent);
   };
 
-  // ---------- Feedback ----------
   const handleFeedback = async (msgId, feedback) => {
     setMessages((prev) =>
       prev.map((m) => (m.id === msgId ? { ...m, feedback } : m))
@@ -327,7 +429,6 @@ export default function AITutor() {
     }
   };
 
-  // ---------- Delete message ----------
   const handleDeleteMessage = async (msgId) => {
     if (!window.confirm("Delete this message?")) return;
     try {
@@ -338,7 +439,6 @@ export default function AITutor() {
     }
   };
 
-  // ---------- Rename conversation ----------
   const startRename = (conv) => {
     setRenamingId(conv.id);
     setRenameValue(conv.title);
@@ -359,7 +459,6 @@ export default function AITutor() {
     }
   };
 
-  // ---------- Toggle pin ----------
   const togglePin = async (conv) => {
     const newVal = !conv.pinned;
     setConversations((prev) =>
@@ -374,7 +473,6 @@ export default function AITutor() {
     }
   };
 
-  // ---------- Delete conversation ----------
   const handleDeleteConversation = async (conv) => {
     setMenuConvId(null);
     if (!window.confirm(`Delete "${conv.title}"? This cannot be undone.`)) return;
@@ -384,13 +482,13 @@ export default function AITutor() {
       if (activeConvId === conv.id) {
         setActiveConvId(null);
         setMessages([]);
+        setAttachments([]);
       }
     } catch {
       setError("Could not delete conversation.");
     }
   };
 
-  // Close menu when clicking outside
   useEffect(() => {
     const handler = () => setMenuConvId(null);
     if (menuConvId) {
@@ -401,18 +499,15 @@ export default function AITutor() {
 
   const currentModel = models.find((m) => m.id === selectedModel);
 
-  // ==================================================
-  // RENDER
-  // ==================================================
   return (
-    <div className="nova-layout">
-      {/* SIDEBAR */}
+    <div className={`nova-layout ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <aside className={`nova-sidebar ${sidebarOpen ? "open" : ""}`}>
         <div className="nova-sidebar-head">
           <div className="nova-brand">
             <div className="nova-brand-mark">N</div>
             <span className="nova-brand-text">NovaAI</span>
           </div>
+
           <button
             type="button"
             className="nova-icon-btn nova-sidebar-close"
@@ -420,6 +515,16 @@ export default function AITutor() {
             aria-label="Close sidebar"
           >
             <X size={18} />
+          </button>
+
+          <button
+            type="button"
+            className="nova-sidebar-collapse-btn"
+            onClick={() => setSidebarCollapsed(true)}
+            title="Collapse sidebar"
+            aria-label="Collapse sidebar"
+          >
+            <ChevronLeft size={16} />
           </button>
         </div>
 
@@ -545,14 +650,13 @@ export default function AITutor() {
         />
       )}
 
-      {/* MAIN */}
       <main className="nova-main">
         <header className="nova-topbar">
           <button
             type="button"
             className="nova-icon-btn nova-hamburger"
-            onClick={() => setSidebarOpen(true)}
-            aria-label="Open sidebar"
+            onClick={handleSidebarToggle}
+            aria-label="Toggle sidebar"
           >
             <Menu size={18} />
           </button>
@@ -644,13 +748,65 @@ export default function AITutor() {
           )}
         </div>
 
-        {/* Composer */}
         <div className="nova-composer-wrap">
-          <div className="nova-composer">
+          {(attachments.length > 0 || uploading) && (
+            <div className="nova-attachments">
+              {attachments.map((a) => (
+                <div key={a.id} className="nova-attachment">
+                  <FileIcon size={14} />
+                  <span className="nova-attachment-name">{a.filename}</span>
+                  <span className="nova-attachment-meta">
+                    {a.chunk_count} chunks
+                  </span>
+                  <button
+                    type="button"
+                    className="nova-attachment-remove"
+                    onClick={() => handleRemoveAttachment(a.id)}
+                    aria-label={`Remove ${a.filename}`}
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ))}
+              {uploading && (
+                <div className="nova-attachment uploading">
+                  <Loader2 size={14} className="spin" />
+                  <span className="nova-attachment-name">
+                    {uploadProgress || "Uploading..."}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div
+            className="nova-composer"
+            onDrop={handleDrop}
+            onDragOver={(e) => e.preventDefault()}
+          >
+            <button
+              type="button"
+              className="nova-mic-btn"
+              onClick={() => fileInputRef.current?.click()}
+              title="Attach file"
+              disabled={streaming || uploading}
+            >
+              <Paperclip size={16} />
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.docx,.txt,.md,.csv,.json,.png,.jpg,.jpeg,.webp"
+              onChange={handleFileSelect}
+              style={{ display: "none" }}
+            />
+
             {voiceInput.supported && (
               <button
                 type="button"
-                className={`nova-mic-btn ${voiceInput.listening ? "listening" : ""}`}
+                className={`nova-mic-btn ${
+                  voiceInput.listening ? "listening" : ""
+                }`}
                 onClick={voiceInput.toggle}
                 title={voiceInput.listening ? "Stop listening" : "Speak"}
                 disabled={streaming}
@@ -667,6 +823,8 @@ export default function AITutor() {
               placeholder={
                 voiceInput.listening
                   ? "Listening..."
+                  : attachments.length > 0
+                  ? `Ask about ${attachments[0].filename}...`
                   : "Message NovaAI..."
               }
               rows={1}
@@ -709,6 +867,8 @@ export default function AITutor() {
 
           <p className="nova-composer-hint">
             NovaAI can make mistakes. Check important information.
+            {attachments.length > 0 &&
+              " Answers may reference your uploaded files."}
           </p>
         </div>
       </main>

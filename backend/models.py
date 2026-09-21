@@ -1,5 +1,6 @@
+from datetime import datetime  
 from sqlalchemy import (
-    Column, Integer, String, Float, Boolean, ForeignKey, Text, DateTime
+    Column, Integer, String, Float, Boolean, DateTime, Text, ForeignKey, JSON
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -355,6 +356,8 @@ class SearchHistory(Base):
 
     student = relationship("Student", overlaps="search_history")
     topic = relationship("Topic")
+
+
 class FlashcardSet(Base):
     """Cached set of flashcards for a topic."""
     __tablename__ = "flashcard_sets"
@@ -370,6 +373,8 @@ class FlashcardSet(Base):
     )
 
     topic = relationship("Topic")
+
+
 # ==================================================
 # CHAT (NovaAI)
 # ==================================================
@@ -392,6 +397,11 @@ class Conversation(Base):
         cascade="all, delete-orphan",
         order_by="ChatMessage.id",
     )
+    attachments = relationship(
+        "ChatAttachment",
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+    )
 
 
 class ChatMessage(Base):
@@ -408,3 +418,44 @@ class ChatMessage(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     conversation = relationship("Conversation", back_populates="messages")
+
+
+# ==================================================
+# RAG — Attachments & Chunks
+# ==================================================
+class ChatAttachment(Base):
+    __tablename__ = "chat_attachments"
+    id = Column(Integer, primary_key=True, index=True)
+    conversation_id = Column(
+        Integer, ForeignKey("conversations.id"), nullable=False, index=True
+    )
+    filename = Column(String, nullable=False)
+    mime_type = Column(String, default="")
+    size_bytes = Column(Integer, default=0)
+    source_type = Column(String, default="text")
+    text_content = Column(Text, default="")
+    chunk_count = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    conversation = relationship("Conversation", back_populates="attachments")
+    chunks = relationship(
+        "DocumentChunk",
+        back_populates="attachment",
+        cascade="all, delete-orphan",
+    )
+
+
+class DocumentChunk(Base):
+    __tablename__ = "document_chunks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    attachment_id = Column(
+        Integer, ForeignKey("chat_attachments.id"), nullable=False, index=True
+    )
+    chunk_index = Column(Integer, nullable=False)
+    content = Column(Text, nullable=False)
+    embedding = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # ✅ THE MISSING LINE — this was causing the error
+    attachment = relationship("ChatAttachment", back_populates="chunks")

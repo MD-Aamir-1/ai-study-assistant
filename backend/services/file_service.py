@@ -1,289 +1,368 @@
 """
-Extract text from uploaded files.
+File text extraction service.
 
-Supported:
-- PDF (text-based) — via pypdf
-- PDF (scanned)    — auto-fallback to page-image OCR via Groq Vision
-- Images (png/jpg/webp/gif) — via Groq Vision
-- DOCX             — via python-docx
-- TXT/MD/CSV       — direct decode
+Strategy:
+  1. Try PyMuPDF (fastest, best for text PDFs)
+  2. Try pdfplumber
+  3. Try pypdf
+  4. If all give < 500 chars -> fall back to OCR (PyMuPDF render + Tesseract)
+
+Supports: PDF, DOCX, TXT, MD, CSV, JSON, code files, images.
 """
 
 import io
-import base64
-import time
-from pypdf import PdfReader
-from ai_tutor import get_client
+import os
+import re
+import shutil
+from typing import Dict, Any
 
-# Optional: PyMuPDF for scanned PDFs
+# ---------- Optional imports ----------
 try:
-    import pymupdf  # new module name (fitz is deprecated)
-    HAS_FITZ = True
+    import pymupdf
+    HAS_PYMUPDF = True
 except ImportError:
     try:
-        import fitz  # fallback for older versions
-        HAS_FITZ = True
+        import fitz as pymupdf
+        HAS_PYMUPDF = True
     except ImportError:
-        HAS_FITZ = False
+        HAS_PYMUPDF = False
 
-# Optional: python-docx for Word files
+try:
+    import pdfplumber
+    HAS_PDFPLUMBER = True
+except ImportError:
+    HAS_PDFPLUMBER = False
+
+try:
+    from pypdf import PdfReader
+    HAS_PYPDF = True
+except ImportError:
+    HAS_PYPDF = False
+
 try:
     from docx import Document
     HAS_DOCX = True
 except ImportError:
     HAS_DOCX = False
 
+try:
+    from PIL import Image
+    HAS_PIL = True
+except ImportError:
+    HAS_PIL = False
 
-# ==================================================
-# MIME / extension classification
-# ==================================================
-IMAGE_TYPES = {"image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"}
-TEXT_TYPES = {"text/plain", "text/markdown", "text/csv"}
-PDF_TYPES = {"application/pdf"}
-DOCX_TYPES = {
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/msword",
-}
-
-# Groq vision model rotation
-VISION_MODELS = [
-    "qwen/qwen3.6-27b",
-    "qwen/qwen3.8-27b",
-]
-
-# Free-tier Groq limit: 1000 output tokens/minute per model.
-# Keep each call safely under that.
-VISION_MAX_TOKENS = 900
-
-# Delay between OCR calls to stay under rate limit
-PAGE_DELAY_SECONDS = 1.5
+try:
+    import pytesseract
+    HAS_TESSERACT = True
+except ImportError:
+    HAS_TESSERACT = False
 
 
-# ==================================================
-# PDF: text-based
-# ==================================================
-def extract_from_pdf(file_bytes: bytes) -> str:
-    reader = PdfReader(io.BytesIO(file_bytes))
-    pages = []
-    for i, page in enumerate(reader.pages):
-        try:
-            text = page.extract_text() or ""
-        except Exception:
-            text = ""
-        if text.strip():
-            pages.append(f"--- Page {i + 1} ---\n{text.strip()}")
-    return "\n\n".join(pages)
+# ---------- Auto-detect Tesseract on Windows ----------
+def _configure_tesseract():
+    if not HAS_TESSERACT:
+        return False
+    if shutil.which("tesseract"):
+        return True
+    candidates = [
+        r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+        r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+        os.path.expanduser(r"~\AppData\Local\Tesseract-OCR\tesseract.exe"),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            pytesseract.pytesseract.tesseract_cmd = path
+            return True
+    return False
+
+
+_TESSERACT_READY = _configure_tesseract()
+MIN_GOOD_CHARS = 500
 
 
 # ==================================================
-# PDF: scanned → render pages to images, then OCR
+# PDF: PyMuPDF — try multiple text modes
 # ==================================================
-def _extract_pdf_via_vision(file_bytes: bytes, max_pages: int = 15) -> str:
-    """
-    Renders each PDF page as a PNG and OCRs it via Groq Vision.
-    Used when the PDF has no embedded text.
-    """
-    if not HAS_FITZ:
-        raise RuntimeError(
-            "Scanned PDF detected but PyMuPDF isn't installed. "
-            "Run: pip install PyMuPDF"
-        )
-
-    # Support both pymupdf and fitz
-    try:
-        doc = pymupdf.open(stream=file_bytes, filetype="pdf")
-    except NameError:
-        doc = fitz.open(stream=file_bytes, filetype="pdf")
-
-    total = len(doc)
-    limit = min(total, max_pages)
-
+def _extract_pdf_pymupdf(contents: bytes) -> Dict[str, Any]:
+    doc = pymupdf.open(stream=contents, filetype="pdf")
     pages_text = []
-    for page_num in range(limit):
-        # ---- Delay before each page (except the first) to respect rate limit ----
-        if page_num > 0:
-            time.sleep(PAGE_DELAY_SECONDS)
 
-        page = doc[page_num]
-        pix = page.get_pixmap(dpi=150)
-        img_bytes = pix.tobytes("png")
-
+    for page in doc:
+        best = ""
         try:
-            text = extract_from_image(img_bytes, "image/png")
-        except Exception as e:
-            text = f"(OCR failed for page {page_num + 1}: {e})"
+            t = page.get_text("text") or ""
+            if len(t) > len(best):
+                best = t
+        except Exception:
+            pass
+        try:
+            blocks = page.get_text("blocks") or []
+            t = "\n".join(
+                b[4] for b in blocks
+                if len(b) >= 5 and isinstance(b[4], str)
+            )
+            if len(t) > len(best):
+                best = t
+        except Exception:
+            pass
+        try:
+            d = page.get_text("dict") or {}
+            spans = []
+            for block in d.get("blocks", []):
+                for line in block.get("lines", []):
+                    for span in line.get("spans", []):
+                        s = span.get("text", "")
+                        if s:
+                            spans.append(s)
+            t = " ".join(spans)
+            if len(t) > len(best):
+                best = t
+        except Exception:
+            pass
 
-        if text and text.strip():
-            pages_text.append(f"--- Page {page_num + 1} ---\n{text.strip()}")
+        pages_text.append(best.strip())
 
     doc.close()
 
-    result = "\n\n".join(pages_text)
-    if total > limit:
-        result += (
-            f"\n\n[... {total - limit} more pages not processed — "
-            f"limit is {limit} pages for OCR ...]"
-        )
-
-    return result
-
-
-# ==================================================
-# Images
-# ==================================================
-def _call_vision(model: str, data_url: str) -> str:
-    client = get_client()
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You extract text from images. Return ONLY the extracted text "
-                    "with no commentary, no markdown fences, no labels. "
-                    "Preserve structure: headings, lists, and question numbering. "
-                    "If the image has no readable text, return an empty string."
-                ),
-            },
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": "Extract all text from this image exactly as it appears.",
-                    },
-                    {"type": "image_url", "image_url": {"url": data_url}},
-                ],
-            },
-        ],
-        temperature=0.1,
-        max_tokens=VISION_MAX_TOKENS,
+    full = "\n\n".join(
+        f"===== Page {i + 1} =====\n{t}" for i, t in enumerate(pages_text)
     )
-    return (response.choices[0].message.content or "").strip()
+    return {"pages": len(pages_text), "text": full, "method": "pymupdf"}
 
 
-def extract_from_image(file_bytes: bytes, mime_type: str) -> str:
-    b64 = base64.b64encode(file_bytes).decode("utf-8")
-    data_url = f"data:{mime_type};base64,{b64}"
-
-    last_error = None
-    for model in VISION_MODELS:
-        # Try twice per model (once, then again after a delay on 429)
-        for attempt in (1, 2):
+# ==================================================
+# PDF: pdfplumber
+# ==================================================
+def _extract_pdf_pdfplumber(contents: bytes) -> Dict[str, Any]:
+    pages_text = []
+    with pdfplumber.open(io.BytesIO(contents)) as pdf:
+        for page in pdf.pages:
             try:
-                text = _call_vision(model, data_url)
-                if text:
-                    return text
-                last_error = RuntimeError("Model returned empty text")
-                break  # try next model
-            except Exception as e:
-                last_error = e
-                err_str = str(e)
-                if "rate_limit" in err_str.lower() or "429" in err_str:
-                    if attempt == 1:
-                        # Wait then retry same model
-                        print(f"[file_service] Rate limit hit — waiting 5s before retry...")
-                        time.sleep(5)
-                        continue
-                # Not a rate limit or 2nd attempt → try next model
-                break
+                t = page.extract_text(x_tolerance=1, y_tolerance=3) or ""
+            except Exception:
+                t = ""
+            pages_text.append(t.strip())
+    full = "\n\n".join(
+        f"===== Page {i + 1} =====\n{t}" for i, t in enumerate(pages_text)
+    )
+    return {"pages": len(pages_text), "text": full, "method": "pdfplumber"}
 
-    raise RuntimeError(f"Image extraction failed. Last error: {last_error}")
+
+# ==================================================
+# PDF: pypdf
+# ==================================================
+def _extract_pdf_pypdf(contents: bytes) -> Dict[str, Any]:
+    reader = PdfReader(io.BytesIO(contents))
+    pages_text = []
+    for page in reader.pages:
+        try:
+            t = page.extract_text() or ""
+        except Exception:
+            t = ""
+        pages_text.append(t.strip())
+    full = "\n\n".join(
+        f"===== Page {i + 1} =====\n{t}" for i, t in enumerate(pages_text)
+    )
+    return {"pages": len(pages_text), "text": full, "method": "pypdf"}
+
+
+# ==================================================
+# PDF: OCR via PyMuPDF render + Tesseract
+# ==================================================
+def _extract_pdf_ocr(contents: bytes, max_pages: int = 50) -> Dict[str, Any]:
+    if not _TESSERACT_READY:
+        raise RuntimeError(
+            "PDF appears to be image-based, but Tesseract OCR is not installed. "
+            "Install: https://github.com/UB-Mannheim/tesseract/wiki"
+        )
+    if not HAS_PYMUPDF:
+        raise RuntimeError("OCR needs PyMuPDF for rendering. Run: pip install pymupdf")
+    if not HAS_PIL:
+        raise RuntimeError("OCR needs Pillow. Run: pip install Pillow")
+
+    doc = pymupdf.open(stream=contents, filetype="pdf")
+    pages_text = []
+    total = len(doc)
+
+    for i, page in enumerate(doc):
+        if i >= max_pages:
+            break
+        try:
+            pix = page.get_pixmap(dpi=200)
+            img_bytes = pix.tobytes("png")
+            img = Image.open(io.BytesIO(img_bytes))
+            text = pytesseract.image_to_string(img) or ""
+        except Exception:
+            text = ""
+        pages_text.append(text.strip())
+
+    doc.close()
+
+    full = "\n\n".join(
+        f"===== Page {i + 1} =====\n{t}" for i, t in enumerate(pages_text)
+    )
+    note = ""
+    if total > max_pages:
+        note = f"OCR'd first {max_pages} of {total} pages"
+
+    return {
+        "pages": total,
+        "text": full,
+        "method": "pymupdf-ocr",
+        "note": note,
+    }
+
+
+# ==================================================
+# PDF dispatcher
+# ==================================================
+def _extract_pdf(contents: bytes) -> Dict[str, Any]:
+    results = []
+    errors = []
+
+    if HAS_PYMUPDF:
+        try:
+            results.append(_extract_pdf_pymupdf(contents))
+        except Exception as e:
+            errors.append(f"pymupdf: {e}")
+
+    if HAS_PDFPLUMBER:
+        try:
+            results.append(_extract_pdf_pdfplumber(contents))
+        except Exception as e:
+            errors.append(f"pdfplumber: {e}")
+
+    if HAS_PYPDF:
+        try:
+            results.append(_extract_pdf_pypdf(contents))
+        except Exception as e:
+            errors.append(f"pypdf: {e}")
+
+    best_text_layer = (
+        max(results, key=lambda r: len(r["text"])) if results else None
+    )
+
+    if best_text_layer and len(best_text_layer["text"]) >= MIN_GOOD_CHARS:
+        return best_text_layer
+
+    try:
+        ocr_result = _extract_pdf_ocr(contents)
+        results.append(ocr_result)
+    except Exception as e:
+        errors.append(f"ocr: {e}")
+
+    if results:
+        best = max(results, key=lambda r: len(r["text"]))
+        if len(best["text"]) < MIN_GOOD_CHARS:
+            best["warning"] = (
+                "Extraction returned very little text. "
+                "The PDF may be protected, empty, or in an unsupported format."
+            )
+        best["errors"] = errors
+        return best
+
+    raise RuntimeError("Could not extract PDF. " + " | ".join(errors))
 
 
 # ==================================================
 # DOCX
 # ==================================================
-def extract_from_docx(file_bytes: bytes) -> str:
+def _extract_docx(contents: bytes) -> Dict[str, Any]:
     if not HAS_DOCX:
-        raise RuntimeError(
-            "DOCX support not installed. Run: pip install python-docx"
-        )
-
-    doc = Document(io.BytesIO(file_bytes))
-    parts = []
-
-    for p in doc.paragraphs:
-        text = p.text.strip()
-        if text:
-            parts.append(text)
-
+        raise RuntimeError("python-docx not installed. Run: pip install python-docx")
+    doc = Document(io.BytesIO(contents))
+    parts = [p.text for p in doc.paragraphs if p.text.strip()]
     for table in doc.tables:
         for row in table.rows:
-            cells = [c.text.strip() for c in row.cells]
-            row_text = " | ".join(cells).strip()
-            if row_text.replace("|", "").strip():
-                parts.append(row_text)
-
-    return "\n\n".join(parts)
+            parts.append(" | ".join(c.text.strip() for c in row.cells))
+    return {"pages": 1, "text": "\n".join(parts), "method": "python-docx"}
 
 
 # ==================================================
 # Plain text
 # ==================================================
-def extract_from_text(file_bytes: bytes) -> str:
-    for encoding in ("utf-8", "utf-16", "latin-1"):
+def _extract_plaintext(contents: bytes) -> Dict[str, Any]:
+    for enc in ("utf-8", "utf-16", "latin-1"):
         try:
-            return file_bytes.decode(encoding)
+            return {"pages": 1, "text": contents.decode(enc), "method": "plain"}
         except UnicodeDecodeError:
             continue
-    raise RuntimeError("Could not decode the text file.")
+    raise RuntimeError("Could not decode text file.")
 
 
 # ==================================================
-# Router
+# Image OCR
 # ==================================================
-def extract_text(file_bytes: bytes, mime_type: str, filename: str) -> dict:
-    mime_type = (mime_type or "").lower()
-    filename_lower = (filename or "").lower()
-    ext = filename_lower.rsplit(".", 1)[-1] if "." in filename_lower else ""
+def _extract_image(contents: bytes) -> Dict[str, Any]:
+    if not (_TESSERACT_READY and HAS_PIL):
+        raise RuntimeError(
+            "Image OCR needs Tesseract. "
+            "Install: https://github.com/UB-Mannheim/tesseract/wiki"
+        )
+    image = Image.open(io.BytesIO(contents))
+    text = pytesseract.image_to_string(image)
+    return {"pages": 1, "text": text.strip(), "method": "tesseract-image"}
 
-    # ---------- PDF ----------
-    if mime_type in PDF_TYPES or ext == "pdf":
-        text = ""
-        try:
-            text = extract_from_pdf(file_bytes)
-        except Exception as e:
-            print(f"[file_service] pypdf failed: {e}")
 
-        if not text.strip():
-            print("[file_service] PDF has no embedded text — falling back to OCR.")
-            text = _extract_pdf_via_vision(file_bytes)
-            if not text.strip():
-                raise RuntimeError(
-                    "No text could be extracted from this PDF. "
-                    "It may be blank, corrupted, or password-protected."
-                )
-            return {
-                "text": text,
-                "source_type": "pdf_scanned",
-                "pages": text.count("--- Page"),
-            }
+# ==================================================
+# Public API
+# ==================================================
+def extract_text(contents: bytes, content_type: str, filename: str) -> Dict[str, Any]:
+    if not contents:
+        raise ValueError("Empty file.")
 
-        return {
-            "text": text,
-            "source_type": "pdf",
-            "pages": text.count("--- Page"),
-        }
+    name = (filename or "").lower()
+    ctype = (content_type or "").lower()
 
-    # ---------- DOCX ----------
-    if mime_type in DOCX_TYPES or ext in ("docx", "doc"):
-        text = extract_from_docx(file_bytes)
-        if not text.strip():
-            raise RuntimeError("This Word document has no readable text.")
-        return {"text": text, "source_type": "docx", "pages": 1}
+    if name.endswith(".pdf") or "pdf" in ctype:
+        r = _extract_pdf(contents)
+        r["source_type"] = "pdf"
+        return _finalize(r)
 
-    # ---------- Image ----------
-    if mime_type in IMAGE_TYPES or ext in ("jpg", "jpeg", "png", "webp", "gif"):
-        text = extract_from_image(file_bytes, mime_type or "image/jpeg")
-        return {"text": text, "source_type": "image", "pages": 1}
+    if name.endswith(".docx") or "wordprocessingml" in ctype:
+        r = _extract_docx(contents)
+        r["source_type"] = "docx"
+        return _finalize(r)
 
-    # ---------- Plain text ----------
-    if mime_type in TEXT_TYPES or ext in ("txt", "md", "csv"):
-        text = extract_from_text(file_bytes)
-        return {"text": text, "source_type": "text", "pages": 1}
+    if (
+        name.endswith((".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff"))
+        or ctype.startswith("image/")
+    ):
+        r = _extract_image(contents)
+        r["source_type"] = "image"
+        return _finalize(r)
 
-    raise ValueError(
-        f"Unsupported file type: {mime_type or filename}. "
-        "Supported: PDF, DOCX, PNG, JPG, WEBP, GIF, TXT, MD, CSV."
-    )
+    if (
+        name.endswith((
+            ".txt", ".md", ".csv", ".json", ".xml", ".yaml", ".yml",
+            ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".c", ".cpp",
+            ".cs", ".go", ".rs", ".rb", ".php", ".html", ".css", ".sql",
+            ".sh", ".log",
+        ))
+        or ctype.startswith("text/")
+        or ctype in ("application/json", "application/xml")
+    ):
+        r = _extract_plaintext(contents)
+        r["source_type"] = "text"
+        return _finalize(r)
+
+    try:
+        r = _extract_plaintext(contents)
+        r["source_type"] = "text"
+        return _finalize(r)
+    except Exception:
+        raise ValueError(f"Unsupported file type: {content_type} ({filename})")
+
+
+def _finalize(result: Dict[str, Any]) -> Dict[str, Any]:
+    text = result.get("text", "") or ""
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = text.strip()
+
+    result["text"] = text
+    result["char_count"] = len(text)
+    result.setdefault("pages", 1)
+    result.setdefault("method", "unknown")
+    return result

@@ -190,4 +190,20 @@ export const streamChatMessage = (
     }
   });
 };
+// ---------- RAG / ATTACHMENTS ----------
+export const uploadChatAttachment = (convId, studentId, file) => {
+  const formData = new FormData();
+  formData.append("file", file);
+  return API.post(
+    `/chat/conversations/${convId}/attachments?student_id=${studentId}`,
+    formData,
+    { headers: { "Content-Type": "multipart/form-data" } }
+  );
+};
+
+export const listChatAttachments = (convId, studentId) =>
+  API.get(`/chat/conversations/${convId}/attachments?student_id=${studentId}`);
+
+export const deleteChatAttachment = (attachmentId, studentId) =>
+  API.delete(`/chat/attachments/${attachmentId}?student_id=${studentId}`);
 export default API;
