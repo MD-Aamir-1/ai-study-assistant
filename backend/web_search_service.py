@@ -4,14 +4,11 @@ Web search service for NovaAI.
 Uses DuckDuckGo (via ddgs) — no API key required.
 
 Public API:
-    search_web(query, max_results=5)      -> List[Dict]
-    build_web_context(results)             -> str
-    needs_web_search(query)                -> bool
-    is_available()                         -> bool
+    search_web(query, max_results=5) -> List[Dict]
+    build_web_context(results)        -> str
 """
 
-import re
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 try:
     from ddgs import DDGS
@@ -24,54 +21,6 @@ except ImportError:
         HAS_DDGS = False
 
 
-# ==================================================
-# Heuristics: should we search the web?
-# ==================================================
-# Phrases that almost always need fresh info
-_TIME_SENSITIVE_PATTERNS = [
-    r"\blatest\b",
-    r"\bcurrent\b",
-    r"\brecent\b",
-    r"\btoday\b",
-    r"\byesterday\b",
-    r"\btomorrow\b",
-    r"\bthis (week|month|year)\b",
-    r"\bnews\b",
-    r"\bbreaking\b",
-    r"\bupdate[sd]?\b",
-    r"\bnew[s]?\b.*\b20\d{2}\b",
-    r"\b20\d{2}\b",                     # any year mention
-    r"\bwho is the (current|new)\b",
-    r"\bwhat(?:'s| is) the (latest|current|new)\b",
-    r"\bstock price\b",
-    r"\bweather\b",
-    r"\blive\b",
-    r"\bnow\b",
-    r"\bjust (announced|released|launched)\b",
-]
-
-
-def needs_web_search(query: str) -> bool:
-    """
-    Very lightweight heuristic: does this query likely need live web data?
-
-    Returns True for time-sensitive questions, False otherwise.
-    Note: this is a *suggestion* — the UI toggle ultimately decides.
-    """
-    q = (query or "").strip().lower()
-    if not q:
-        return False
-
-    for pattern in _TIME_SENSITIVE_PATTERNS:
-        if re.search(pattern, q):
-            return True
-
-    return False
-
-
-# ==================================================
-# Search
-# ==================================================
 def search_web(query: str, max_results: int = 5) -> List[Dict[str, Any]]:
     """
     Search the web and return a list of results:
@@ -100,15 +49,12 @@ def search_web(query: str, max_results: int = 5) -> List[Dict[str, Any]]:
             "title": title,
             "url": url,
             "snippet": snippet,
-            "score": round(1.0 - i * 0.05, 3),
+            "score": round(1.0 - i * 0.05, 3),   # arbitrary descending score
         })
 
     return results
 
 
-# ==================================================
-# Context builder
-# ==================================================
 def build_web_context(results: List[Dict[str, Any]]) -> str:
     """Format web results as a context block for the LLM."""
     if not results:

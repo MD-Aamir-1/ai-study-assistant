@@ -71,10 +71,7 @@ export default function AITutor() {
   const [input, setInput] = useState("");
   const [error, setError] = useState("");
 
-  // Sidebar (mobile drawer)
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  // Sidebar (desktop collapse)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     return localStorage.getItem(SIDEBAR_KEY) === "true";
   });
@@ -90,17 +87,18 @@ export default function AITutor() {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState("");
 
+  // Web search toggle
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+
   const abortRef = useRef(null);
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
 
-  // Persist collapse state
   useEffect(() => {
     localStorage.setItem(SIDEBAR_KEY, sidebarCollapsed ? "true" : "false");
   }, [sidebarCollapsed]);
 
-  // Voice
   const voiceInput = useVoiceInput({
     onResult: (text) => {
       setInput((prev) => (prev ? `${prev} ${text}` : text));
@@ -109,14 +107,12 @@ export default function AITutor() {
   });
   const voiceOutput = useVoiceOutput();
 
-  // Load models
   useEffect(() => {
     getChatModels()
       .then((res) => setModels(res.data.models || []))
       .catch(() => {});
   }, []);
 
-  // Load conversations
   useEffect(() => {
     if (!user?.student_id) return;
     loadConversations();
@@ -135,7 +131,6 @@ export default function AITutor() {
     }
   };
 
-  // Debounced search
   useEffect(() => {
     if (!user?.student_id) return;
     if (searchTimer) clearTimeout(searchTimer);
@@ -144,7 +139,6 @@ export default function AITutor() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery]);
 
-  // Load attachments on conversation switch
   useEffect(() => {
     if (!activeConvId || !user?.student_id) {
       setAttachments([]);
@@ -202,7 +196,6 @@ export default function AITutor() {
     return res.data.id;
   };
 
-  // Sidebar toggle: mobile drawer vs desktop collapse
   const handleSidebarToggle = () => {
     if (window.innerWidth < 900) {
       setSidebarOpen((o) => !o);
@@ -211,7 +204,6 @@ export default function AITutor() {
     }
   };
 
-  // File upload
   const handleFileSelect = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -240,7 +232,10 @@ export default function AITutor() {
     } catch (err) {
       const msg =
         err.response?.data?.detail ||
+        err.response?.data?.message ||
+        err.message ||
         "Could not process this file. Try a different one.";
+      console.error("Upload error:", err.response?.data || err);
       setError(msg);
       setUploadProgress("");
     } finally {
@@ -283,6 +278,7 @@ export default function AITutor() {
         content: "",
         feedback: "",
         sources: [],
+        webSources: [],
       },
     ]);
 
@@ -332,6 +328,15 @@ export default function AITutor() {
               )
             );
           },
+          web_sources: (data) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === tempAssistantId
+                  ? { ...m, webSources: data.sources || [] }
+                  : m
+              )
+            );
+          },
           delta: (data) => {
             streamedText += data.content;
             setMessages((prev) =>
@@ -356,7 +361,8 @@ export default function AITutor() {
             setError(data.message || "Streaming failed.");
           },
         },
-        controller.signal
+        controller.signal,
+        { web_search: webSearchEnabled }
       );
     } catch (err) {
       if (err.name !== "AbortError") {
@@ -801,6 +807,16 @@ export default function AITutor() {
               style={{ display: "none" }}
             />
 
+            <button
+              type="button"
+              className={`nova-mic-btn ${webSearchEnabled ? "active" : ""}`}
+              onClick={() => setWebSearchEnabled((v) => !v)}
+              title={webSearchEnabled ? "Web search ON" : "Web search OFF"}
+              disabled={streaming}
+            >
+              <Globe size={16} />
+            </button>
+
             {voiceInput.supported && (
               <button
                 type="button"
@@ -825,6 +841,8 @@ export default function AITutor() {
                   ? "Listening..."
                   : attachments.length > 0
                   ? `Ask about ${attachments[0].filename}...`
+                  : webSearchEnabled
+                  ? "Ask anything — web search is ON..."
                   : "Message NovaAI..."
               }
               rows={1}
@@ -866,6 +884,9 @@ export default function AITutor() {
           )}
 
           <p className="nova-composer-hint">
+            {webSearchEnabled && (
+              <span className="nova-web-hint">🌐 Web search enabled · </span>
+            )}
             NovaAI can make mistakes. Check important information.
             {attachments.length > 0 &&
               " Answers may reference your uploaded files."}

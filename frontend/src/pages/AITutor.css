@@ -711,7 +711,23 @@
   flex-shrink: 0;
   position: relative;
 }
+/* Active state for tool buttons (e.g. web search ON) */
+.nova-mic-btn.active {
+  background: var(--primary-light);
+  color: var(--primary);
+}
 
+.nova-mic-btn.active:hover:not(:disabled) {
+  background: var(--primary-light);
+  color: var(--primary);
+  transform: scale(1.05);
+}
+
+/* Web search hint in the composer footer */
+.nova-web-hint {
+  color: var(--primary);
+  font-weight: 600;
+}
 .nova-mic-btn:hover:not(:disabled) {
   background: var(--surface-alt);
   color: var(--primary);

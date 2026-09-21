@@ -1815,6 +1815,7 @@ class ChatSendRequest(BaseModel):
     student_id: int
     content: str
     model: Optional[str] = None
+    web_search: bool = False
 
 
 class MessageFeedback(BaseModel):
@@ -2028,6 +2029,10 @@ from services.rag_service import (
     retrieve_relevant_chunks,
     build_context_block,
 )
+from services.web_search_service import (
+    search_web,
+    build_web_context,
+)
 
 
 @app.post("/chat/conversations/{conv_id}/attachments")
@@ -2239,8 +2244,7 @@ def stream_chat(
 ):
     """
     Sends a message and streams the AI response back via SSE.
-    If the conversation has attachments, retrieves relevant chunks
-    and injects them as grounded context.
+    Supports file RAG context + optional live web search.
     """
     conv = db.query(models.Conversation).filter(
         models.Conversation.id == conv_id,
@@ -2255,9 +2259,24 @@ def stream_chat(
 
     model_id = payload.model or conv.model or chat_service.DEFAULT_MODEL
 
+    # ---------- Web search (optional) ----------
+    web_results = []
+    web_context = ""
+    if getattr(payload, "web_search", False):
+        try:
+            web_results = search_web(user_text, max_results=5)
+            web_context = build_web_context(web_results)
+        except Exception as e:
+            print(f"[stream_chat] web search failed: {e}")
+
     # ---------- RAG retrieval ----------
     chunks = retrieve_relevant_chunks(conv_id, user_text, top_k=4, db=db)
-    context_block = build_context_block(chunks)
+    file_context = build_context_block(chunks)
+
+    # Combine: web first (fresh info), then files
+    context_block = "\n\n".join(
+        part for part in (web_context, file_context) if part
+    )
 
     # ---------- Save user message ----------
     user_msg = models.ChatMessage(
@@ -2308,6 +2327,22 @@ def stream_chat(
             yield _sse({"type": "user_message_id", "id": user_msg.id})
             yield _sse({"type": "title", "title": conv.title})
 
+            # Emit web sources first (if any)
+            if web_results:
+                yield _sse({
+                    "type": "web_sources",
+                    "sources": [
+                        {
+                            "title": w["title"],
+                            "url": w["url"],
+                            "snippet": w["snippet"][:220],
+                            "score": w["score"],
+                        }
+                        for w in web_results
+                    ],
+                })
+
+            # Emit file sources
             if chunks:
                 yield _sse({
                     "type": "sources",

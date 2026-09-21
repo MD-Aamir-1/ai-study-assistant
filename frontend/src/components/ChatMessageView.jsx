@@ -15,6 +15,7 @@ import {
   Volume2,
   VolumeX,
   FileText,
+  Globe,
   ChevronDown,
   ChevronUp,
   User,
@@ -212,17 +213,42 @@ function AssistantMessage({
     <div className="nv-msg nv-msg-assistant">
       <div className="nv-msg-avatar nv-avatar-assistant">N</div>
       <div className="nv-msg-body">
-        {message.sources?.length > 0 && (
-          <div className="nv-sources">
-            {message.sources.map((s, i) => (
-              <div key={i} className="nv-source-chip" title={s.snippet}>
-                <FileText size={11} />
-                <span>{s.filename}</span>
-                <span className="nv-source-meta">· chunk {s.chunk_index}</span>
-              </div>
-            ))}
-          </div>
-        )}
+{/* Web sources */}
+{message.webSources?.length > 0 && (
+  <div className="nv-web-sources">
+    <div className="nv-web-sources-label">
+      <Globe size={12} /> Web sources
+    </div>
+    <div className="nv-sources">
+      {message.webSources.map((s, i) => (
+        <a
+          key={i}
+          className="nv-web-source-chip"
+          href={s.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={s.snippet}
+        >
+          <span className="nv-web-source-num">{i + 1}</span>
+          <span className="nv-web-source-title">{s.title}</span>
+        </a>
+      ))}
+    </div>
+  </div>
+)}
+
+{/* File sources */}
+{message.sources?.length > 0 && (
+  <div className="nv-sources">
+    {message.sources.map((s, i) => (
+      <div key={i} className="nv-source-chip" title={s.snippet}>
+        <FileText size={11} />
+        <span>{s.filename}</span>
+        <span className="nv-source-meta">· chunk {s.chunk_index}</span>
+      </div>
+    ))}
+  </div>
+)}
 
         <div className="nv-md">
           <ReactMarkdown
