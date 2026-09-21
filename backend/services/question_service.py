@@ -29,9 +29,30 @@ TEST_PROMPT_TEMPLATE = """Create {num} conceptual multiple-choice questions abou
 The topic is broken into these concepts:
 {concept_list}
 
-Rules:
-- Questions MUST test CONCEPTUAL understanding — reasoning, application, scenarios, comparisons, "what if" questions
-- NO trivial definition questions ("What is X?")
+═══════════════════════════════════════════════
+QUESTION TYPE MIX — CRITICAL
+═══════════════════════════════════════════════
+
+You MUST spread questions across DIFFERENT types. Do not produce 6 questions
+of the same type. Aim for this distribution:
+
+- 1 SCENARIO question   → "A student is building X and encounters Y. What should they do?"
+- 1 APPLICATION question → "In which real-world situation would you use X vs Y?"
+- 1 COMPARISON question → "What is the KEY difference between X and Y?"
+- 1 PREDICTION question → "If you increase X, what happens to Y and why?"
+- 1 ERROR-SPOTTING question → "A model has X problem. Which mistake caused it?"
+- 1 CONCEPTUAL question → reasoning/why-based (NOT a plain definition)
+
+If num < 6, prioritize SCENARIO and APPLICATION first.
+If num > 6, repeat the pattern.
+
+NEVER produce 2+ definition-only questions in the same test.
+NEVER ask "What is X?" — always test understanding, not memory.
+
+═══════════════════════════════════════════════
+OTHER RULES
+═══════════════════════════════════════════════
+
 - Every question must target at least ONE of the concepts above
 - Use the EXACT concept names from the list above when filling concept_names
 - Each question must have exactly 4 options (A, B, C, D), only one correct
@@ -51,17 +72,11 @@ Double-check:
 - The letter in "correct_option" must match the letter of the correct option
 - The "explanation" must reference the correct answer
 
-BAD EXAMPLE (do not produce):
-{{
-  "option_a": "K-Means",           ← this is the correct answer
-  "correct_option": "B"             ← WRONG! Should be "A"
-}}
-
 Vary the correct_option across questions (not always "A" or "B").
 If 4 questions: put correct answers at A, B, C, D positions (one each).
 
 For each question, return the correct_option AND a short "reasoning" field that
-explains in one sentence WHY that option is correct. This helps verify the mapping.
+explains in one sentence WHY that option is correct.
 
 ═══════════════════════════════════════════════
 
@@ -77,14 +92,14 @@ Return ONLY valid JSON matching this schema:
       "correct_option": "A",
       "reasoning": "One sentence explaining why the marked option is correct",
       "explanation": "Why the correct answer is correct (1-2 sentences)",
-      "question_type": "conceptual",
+      "question_type": "scenario",
       "difficulty": "{difficulty}",
       "concept_names": ["Exact Concept Name 1"]
     }}
   ]
 }}
 
-question_type must be one of: conceptual, application, scenario, comparison.
+question_type must be one of: scenario, application, comparison, prediction, error_spotting, conceptual.
 
 Topic: {topic}
 """

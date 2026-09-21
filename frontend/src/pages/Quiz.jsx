@@ -7,6 +7,7 @@ import {
   submitTest,
 } from "../api/client";
 import { useAuth } from "../context/AuthContext";
+import ConceptModal from "../components/ConceptModal";
 import {
   Clock,
   SkipForward,
@@ -34,12 +35,10 @@ export default function Quiz() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // ---------- Learned topics (cards) ----------
   const [history, setHistory] = useState([]);
   const [enriched, setEnriched] = useState([]);
   const [loadingTopics, setLoadingTopics] = useState(true);
 
-  // ---------- Test state ----------
   const [activeTopic, setActiveTopic] = useState(null);
   const [questions, setQuestions] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -50,19 +49,17 @@ export default function Quiz() {
   const [error, setError] = useState("");
   const [seconds, setSeconds] = useState(0);
 
+  const [activeConcept, setActiveConcept] = useState(null);
+
   const timerRef = useRef(null);
   const autoStarted = useRef(false);
   const sessionRestored = useRef(false);
 
-  // ==================================================
-  // 1. Load topics from cache instantly + refresh
-  // ==================================================
+  // 1. Load topics from cache + refresh
   useEffect(() => {
     if (!user?.student_id) return;
 
     let hasCache = false;
-
-    // ---- Instant from cache ----
     try {
       const h = JSON.parse(localStorage.getItem(HISTORY_CACHE_KEY) || "null");
       const t = JSON.parse(localStorage.getItem(TOPICS_CACHE_KEY) || "null");
@@ -125,9 +122,7 @@ export default function Quiz() {
     setLoadingTopics(false);
   };
 
-  // ==================================================
-  // 2. Merge history + enriched → displayable topic cards
-  // ==================================================
+  // 2. Merge history + enriched
   const enrichedMap = new Map(enriched.map((t) => [t.id, t]));
 
   const learnedTopics = history
@@ -142,12 +137,9 @@ export default function Quiz() {
         attempts: t?.attempts || 0,
       };
     })
-    // Dedupe (in case of duplicates in history)
     .filter((t, i, arr) => arr.findIndex((x) => x.id === t.id) === i);
 
-  // ==================================================
-  // 3. Auto-start if ?topic= is in URL (from TopicView)
-  // ==================================================
+  // 3. Auto-start if ?topic= is in URL
   useEffect(() => {
     const urlTopic = Number(searchParams.get("topic"));
     if (!urlTopic || autoStarted.current || learnedTopics.length === 0) return;
@@ -160,9 +152,7 @@ export default function Quiz() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [learnedTopics, searchParams]);
 
-  // ==================================================
-  // 4. Restore session (once)
-  // ==================================================
+  // 4. Restore session
   useEffect(() => {
     if (!user?.student_id || sessionRestored.current) return;
     sessionRestored.current = true;
@@ -181,14 +171,13 @@ export default function Quiz() {
         setSeconds(saved.seconds || 0);
         setActiveTopic(saved.topic);
       }
-    } catch {
-      // ignore
-    }
+    } catch {}
   }, [user?.student_id]);
 
   // Persist active session
   useEffect(() => {
-    if (!user?.student_id || !activeTopic || questions.length === 0 || result) return;
+    if (!user?.student_id || !activeTopic || questions.length === 0 || result)
+      return;
     try {
       localStorage.setItem(
         SESSION_CACHE_KEY,
@@ -215,9 +204,7 @@ export default function Quiz() {
     return () => clearInterval(timerRef.current);
   }, [questions.length, result]);
 
-  // ==================================================
   // 5. Handlers
-  // ==================================================
   const startTest = async (topic) => {
     setActiveTopic(topic);
     setGenerating(true);
@@ -251,6 +238,7 @@ export default function Quiz() {
     setResult(null);
     setSeconds(0);
     setError("");
+    setActiveConcept(null);
     setSearchParams({});
     autoStarted.current = false;
   };
@@ -282,7 +270,6 @@ export default function Quiz() {
       const res = await submitTest(user.student_id, answers);
       setResult(res.data);
       localStorage.removeItem(SESSION_CACHE_KEY);
-      // Invalidate downstream caches
       localStorage.removeItem("dashboard_cache_v1");
       localStorage.removeItem("dashboard_recs_cache_v1");
       localStorage.removeItem("recs_cache_v1");
@@ -298,9 +285,7 @@ export default function Quiz() {
     if (activeTopic) startTest(activeTopic);
   };
 
-  // ==================================================
   // 6. Derived values
-  // ==================================================
   const currentQuestion = questions[currentIndex];
   const progress =
     questions.length > 0 ? ((currentIndex + 1) / questions.length) * 100 : 0;
@@ -330,7 +315,7 @@ export default function Quiz() {
     return "score-none";
   };
 
-  const formatTime2 = (iso) => {
+  const formatTimeAgo = (iso) => {
     if (!iso) return "";
     const d = new Date(iso);
     const diff = Math.floor((Date.now() - d.getTime()) / 60000);
@@ -343,8 +328,16 @@ export default function Quiz() {
     return d.toLocaleDateString();
   };
 
+  const openConceptDeepDive = (c) => {
+    setActiveConcept({
+      id: c.concept_id,
+      name: c.concept_name,
+      description: "",
+    });
+  };
+
   // ==================================================
-  // RENDER: TOPIC SELECTION (default view)
+  // RENDER: TOPIC SELECTION
   // ==================================================
   if (!activeTopic) {
     return (
@@ -396,9 +389,7 @@ export default function Quiz() {
                 >
                   <div className="ttc-header">
                     <span className="ttc-subject">{t.subject_name}</span>
-                    <span
-                      className={`ttc-score ${scoreClass(t.score)}`}
-                    >
+                    <span className={`ttc-score ${scoreClass(t.score)}`}>
                       {t.attempts > 0 ? `${Math.round(t.score)}%` : "New"}
                     </span>
                   </div>
@@ -411,7 +402,9 @@ export default function Quiz() {
                         ? `${t.attempts} attempt${t.attempts === 1 ? "" : "s"}`
                         : "Not tested yet"}
                     </div>
-                    <div className="ttc-time">{formatTime2(t.searched_at)}</div>
+                    <div className="ttc-time">
+                      {formatTimeAgo(t.searched_at)}
+                    </div>
                   </div>
 
                   <div className="ttc-action">
@@ -643,14 +636,19 @@ export default function Quiz() {
             <div className="result-concepts">
               <h3 className="result-section-title">🧠 Concept Breakdown</h3>
               <p className="result-section-sub">
-                Sorted weakest first — this is where you need the most work.
+                Sorted weakest first — click any concept to open its deep-dive.
               </p>
               {result.concepts.map((c) => (
                 <div key={c.concept_id} className="concept-result">
                   <div className="concept-result-header">
-                    <span className="concept-result-name">
+                    <button
+                      type="button"
+                      className="concept-result-name-clickable"
+                      onClick={() => openConceptDeepDive(c)}
+                      title={`Open deep-dive for ${c.concept_name}`}
+                    >
                       {c.concept_name}
-                    </span>
+                    </button>
                     <div className="concept-result-right">
                       <span
                         className={`concept-trend trend-${c.trend}`}
@@ -722,6 +720,14 @@ export default function Quiz() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* Concept Deep-Dive Modal */}
+      {activeConcept && (
+        <ConceptModal
+          concept={activeConcept}
+          onClose={() => setActiveConcept(null)}
+        />
       )}
     </div>
   );

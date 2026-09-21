@@ -1042,3 +1042,31 @@
     justify-content: center;
   }
 }
+/* ---------- Clickable concept names in results ---------- */
+.concept-result-name-clickable {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+  transition: all 0.15s;
+  text-align: left;
+}
+
+.concept-result-name-clickable:hover {
+  color: var(--primary);
+  text-decoration-color: var(--primary);
+}
+
+.concept-result-name-clickable:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+  border-radius: 3px;
+}

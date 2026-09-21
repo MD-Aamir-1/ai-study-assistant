@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { getStudentConcepts } from "../api/client";
 import { useAuth } from "../context/AuthContext";
+import ConceptModal from "../components/ConceptModal";
 import {
   TrendingUp,
   TrendingDown,
@@ -18,11 +18,11 @@ const CACHE_KEY = "gaps_cache_v1";
 
 export default function KnowledgeGaps() {
   const { user } = useAuth();
-  const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [filter, setFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [activeConcept, setActiveConcept] = useState(null);
 
   useEffect(() => {
     if (!user?.student_id) return;
@@ -109,8 +109,13 @@ export default function KnowledgeGaps() {
   const improving = allConcepts.filter((c) => c.trend === "improving").length;
   const atRisk = allConcepts.filter((c) => c.at_risk === true).length;
 
-  const handleRowClick = (topicId) => {
-    navigate(`/topic/${topicId}`);
+  // Build a concept object for ConceptModal
+  const openConceptDeepDive = (c) => {
+    setActiveConcept({
+      id: c.concept_id,
+      name: c.concept_name,
+      description: c.description || "",
+    });
   };
 
   return (
@@ -119,7 +124,7 @@ export default function KnowledgeGaps() {
         <div>
           <h1 className="gaps-title">Knowledge Gaps</h1>
           <p className="gaps-subtitle">
-            Concept-level analysis with ML risk prediction.
+            Click any concept to open its deep-dive explanation.
           </p>
         </div>
 
@@ -220,13 +225,13 @@ export default function KnowledgeGaps() {
                   className={`gap-item gap-item-clickable ${
                     c.at_risk ? "gap-item-risk" : ""
                   }`}
-                  onClick={() => handleRowClick(c.topic_id)}
+                  onClick={() => openConceptDeepDive(c)}
                   role="button"
                   tabIndex={0}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
-                      handleRowClick(c.topic_id);
+                      openConceptDeepDive(c);
                     }
                   }}
                 >
@@ -287,6 +292,14 @@ export default function KnowledgeGaps() {
             </div>
           )}
         </>
+      )}
+
+      {/* Concept Deep-Dive Modal */}
+      {activeConcept && (
+        <ConceptModal
+          concept={activeConcept}
+          onClose={() => setActiveConcept(null)}
+        />
       )}
     </div>
   );
