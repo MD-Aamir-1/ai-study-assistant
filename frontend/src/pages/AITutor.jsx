@@ -30,7 +30,8 @@ import {
   Square,
   Sparkles,
   ChevronDown,
-  ChevronLeft,
+  ChevronsLeft,
+  PanelLeftOpen,
   Menu,
   X,
   Loader2,
@@ -46,11 +47,13 @@ import {
   File as FileIcon,
   Home,
   LayoutDashboard,
+  RefreshCw,
 } from "lucide-react";
 import "./AITutor.css";
 
 const DEFAULT_MODEL = "nova-balanced";
 const SIDEBAR_KEY = "nova_sidebar_collapsed";
+const CONV_CACHE_KEY = "nova_conversations_cache_v2";
 
 const SUGGESTIONS = [
   { icon: Lightbulb, label: "Explain a concept", prompt: "Explain quantum computing in simple terms." },
@@ -65,12 +68,26 @@ export default function AITutor() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  const [conversations, setConversations] = useState([]);
+  // ==================================================
+  // INSTANT CACHE LOAD — read synchronously on init
+  // ==================================================
+  const [conversations, setConversations] = useState(() => {
+    try {
+      const raw = localStorage.getItem(CONV_CACHE_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return parsed.data || [];
+    } catch {
+      return [];
+    }
+  });
+
   const [activeConvId, setActiveConvId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [models, setModels] = useState([]);
   const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [refreshingConvs, setRefreshingConvs] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [input, setInput] = useState("");
   const [error, setError] = useState("");
@@ -86,23 +103,23 @@ export default function AITutor() {
   const [renamingId, setRenamingId] = useState(null);
   const [renameValue, setRenameValue] = useState("");
 
-  // Attachments
   const [attachments, setAttachments] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState("");
-
-  // Web search toggle
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
 
   const abortRef = useRef(null);
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
+  const hasFetchedRef = useRef(false);
 
+  // Persist sidebar state
   useEffect(() => {
     localStorage.setItem(SIDEBAR_KEY, sidebarCollapsed ? "true" : "false");
   }, [sidebarCollapsed]);
 
+  // Voice
   const voiceInput = useVoiceInput({
     onResult: (text) => {
       setInput((prev) => (prev ? `${prev} ${text}` : text));
@@ -111,38 +128,95 @@ export default function AITutor() {
   });
   const voiceOutput = useVoiceOutput();
 
+  // Load models once
   useEffect(() => {
     getChatModels()
       .then((res) => setModels(res.data.models || []))
       .catch(() => {});
   }, []);
 
+  // ==================================================
+  // Conversation loading strategy
+  // ==================================================
+  // On mount: if cache → show instantly + silent refresh
+  //           if no cache → fetch (show loading)
+  // Not re-triggered on tab switches (uses hasFetchedRef).
   useEffect(() => {
     if (!user?.student_id) return;
-    loadConversations();
+    if (hasFetchedRef.current) return;
+    hasFetchedRef.current = true;
+
+    const cached = (() => {
+      try {
+        const raw = localStorage.getItem(CONV_CACHE_KEY);
+        return raw ? JSON.parse(raw) : null;
+      } catch {
+        return null;
+      }
+    })();
+
+    if (cached?.data?.length) {
+      // Already rendered instantly from cache.
+      // Silent refresh in background.
+      loadConversations("", { silent: true });
+    } else {
+      // No cache → fetch with spinner
+      loadConversations("", { silent: false });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.student_id]);
 
-  const loadConversations = async (q = "") => {
-    setLoading(true);
+  const loadConversations = async (q = "", { silent = false } = {}) => {
+    if (!user?.student_id) return;
+
+    if (!silent) {
+      setRefreshingConvs(true);
+      if (conversations.length === 0) setLoading(true);
+    }
+
     try {
       const res = await listConversations(user.student_id, q);
-      setConversations(res.data.conversations || []);
+      const list = res.data.conversations || [];
+      setConversations(list);
+
+      // Persist to cache (only for non-search queries to avoid overwriting
+      // with filtered results)
+      if (!q.trim()) {
+        try {
+          localStorage.setItem(
+            CONV_CACHE_KEY,
+            JSON.stringify({
+              student_id: user.student_id,
+              data: list,
+              fetchedAt: Date.now(),
+            })
+          );
+        } catch {}
+      }
+
+      setError(""); // clear any stale error on success
     } catch {
-      setError("Could not load conversations.");
+      // Only show error if we have no cached data to display
+      if (conversations.length === 0) {
+        setError("Could not load conversations.");
+      }
     } finally {
       setLoading(false);
+      setRefreshingConvs(false);
     }
   };
 
+  // Search debounce
   useEffect(() => {
     if (!user?.student_id) return;
+    if (!searchQuery.trim()) return;
     if (searchTimer) clearTimeout(searchTimer);
     const t = setTimeout(() => loadConversations(searchQuery), 350);
     setSearchTimer(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery]);
 
+  // Load attachments for active conversation
   useEffect(() => {
     if (!activeConvId || !user?.student_id) {
       setAttachments([]);
@@ -217,16 +291,13 @@ export default function AITutor() {
 
   const uploadFile = async (file) => {
     if (!file) return;
-
     if (file.size > 10 * 1024 * 1024) {
       setError("File too large. Max 10 MB.");
       return;
     }
-
     setUploading(true);
     setUploadProgress("Uploading...");
     setError("");
-
     try {
       const convId = await ensureConversation();
       setUploadProgress("Extracting text and generating embeddings...");
@@ -375,7 +446,8 @@ export default function AITutor() {
     } finally {
       setStreaming(false);
       abortRef.current = null;
-      loadConversations(searchQuery);
+      // Silent refresh — we already have this conversation in memory
+      loadConversations(searchQuery, { silent: true });
     }
   };
 
@@ -434,9 +506,7 @@ export default function AITutor() {
     );
     try {
       await sendMessageFeedback(msgId, user.student_id, feedback);
-    } catch {
-      // silent
-    }
+    } catch {}
   };
 
   const handleDeleteMessage = async (msgId) => {
@@ -477,7 +547,7 @@ export default function AITutor() {
     setMenuConvId(null);
     try {
       await updateConversation(conv.id, user.student_id, { pinned: newVal });
-      loadConversations(searchQuery);
+      loadConversations(searchQuery, { silent: true });
     } catch {
       setError("Could not pin.");
     }
@@ -527,6 +597,7 @@ export default function AITutor() {
             <X size={18} />
           </button>
 
+          {/* ✅ Panel-style collapse button — matches 3rd image */}
           <button
             type="button"
             className="nova-sidebar-collapse-btn"
@@ -534,7 +605,7 @@ export default function AITutor() {
             title="Collapse sidebar"
             aria-label="Collapse sidebar"
           >
-            <ChevronLeft size={16} />
+            <ChevronsLeft size={18} />
           </button>
         </div>
 
@@ -551,6 +622,15 @@ export default function AITutor() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
+          <button
+            type="button"
+            className="nova-conv-refresh"
+            onClick={() => loadConversations(searchQuery)}
+            disabled={refreshingConvs}
+            title="Refresh conversations"
+          >
+            <RefreshCw size={12} className={refreshingConvs ? "spin" : ""} />
+          </button>
         </div>
 
         <div className="nova-conv-list">
@@ -682,13 +762,19 @@ export default function AITutor() {
             <Home size={18} />
           </button>
 
+          {/* ✅ Hamburger swaps to PanelLeftOpen when sidebar is collapsed */}
           <button
             type="button"
             className="nova-icon-btn nova-hamburger"
             onClick={handleSidebarToggle}
             aria-label="Toggle sidebar"
+            title={sidebarCollapsed ? "Open sidebar" : "Close sidebar"}
           >
-            <Menu size={18} />
+            {sidebarCollapsed ? (
+              <PanelLeftOpen size={18} />
+            ) : (
+              <Menu size={18} />
+            )}
           </button>
 
           <div className="nova-model-selector">

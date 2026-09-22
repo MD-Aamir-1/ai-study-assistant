@@ -29,7 +29,7 @@ function AppRoutes() {
         element={user ? <Navigate to="/" replace /> : <Login />}
       />
 
-      {/* FULL-SCREEN AI Tutor — no Layout wrapper */}
+      {/* ✅ FULL-SCREEN AI Tutor — NO Layout wrapper */}
       <Route
         path="/ai-tutor"
         element={
@@ -56,7 +56,6 @@ function AppRoutes() {
                 <Route path="/analytics" element={<Analytics />} />
                 <Route path="/recommendations" element={<Recommendations />} />
                 <Route path="/settings" element={<Settings />} />
-
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </Layout>

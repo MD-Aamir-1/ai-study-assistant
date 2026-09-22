@@ -72,6 +72,7 @@
   display: none;
 }
 
+/* ---------- Collapse button (panel style) ---------- */
 .nova-sidebar-collapse-btn {
   background: transparent;
   border: none;
@@ -88,6 +89,7 @@
 .nova-sidebar-collapse-btn:hover {
   background: var(--surface-alt);
   color: var(--primary);
+  transform: scale(1.05);
 }
 
 /* Hide the desktop collapse button on mobile */
@@ -121,12 +123,13 @@
   color: var(--primary);
 }
 
+/* ---------- SEARCH + REFRESH BUTTON ---------- */
 .nova-search {
   display: flex;
   align-items: center;
   gap: 8px;
   margin: 0 12px 8px;
-  padding: 8px 12px;
+  padding: 8px 10px 8px 12px;
   border-radius: 8px;
   background: var(--surface-alt);
   border: 1px solid transparent;
@@ -140,19 +143,47 @@
 
 .nova-search input {
   flex: 1;
+  min-width: 0;
   border: none;
   background: transparent;
   outline: none;
   font-size: 13px;
   color: var(--text);
   font-family: inherit;
-  min-width: 0;
 }
 
 .nova-search input::placeholder {
   color: var(--text-muted);
 }
 
+/* Refresh button inside search input */
+.nova-conv-refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.nova-conv-refresh:hover:not(:disabled) {
+  background: var(--surface);
+  color: var(--primary);
+}
+
+.nova-conv-refresh:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---------- CONVERSATION LIST ---------- */
 .nova-conv-list {
   flex: 1;
   overflow-y: auto;
@@ -322,9 +353,41 @@
   font-size: 13px;
 }
 
+/* ---------- SIDEBAR FOOTER ---------- */
 .nova-sidebar-foot {
   padding: 12px;
   border-top: 1px solid var(--border);
+}
+
+/* Back to Dashboard button */
+.nova-dashboard-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: left;
+}
+
+.nova-dashboard-btn:hover {
+  background: var(--primary-light);
+  color: var(--primary);
+  border-color: var(--primary);
+  transform: translateX(-2px);
+}
+
+.nova-dashboard-btn svg {
+  flex-shrink: 0;
 }
 
 .nova-user {
@@ -407,6 +470,16 @@
   display: inline-flex;
 }
 
+/* Home button in topbar — always visible */
+.nova-home-btn {
+  color: var(--text-muted);
+}
+
+.nova-home-btn:hover {
+  color: var(--primary);
+  background: var(--primary-light);
+}
+
 .nova-icon-btn {
   background: transparent;
   border: none;
@@ -466,7 +539,7 @@
   margin-left: auto;
 }
 
-/* ---------- Content ---------- */
+/* ---------- CONTENT ---------- */
 .nova-content {
   flex: 1;
   overflow-y: auto;
@@ -496,7 +569,7 @@
   padding: 2px;
 }
 
-/* ---------- Welcome ---------- */
+/* ---------- WELCOME ---------- */
 .nova-welcome {
   flex: 1;
   display: flex;
@@ -589,21 +662,21 @@
   line-height: 1.4;
 }
 
-/* ---------- Messages ---------- */
+/* ---------- MESSAGES ---------- */
 .nova-messages {
   flex: 1;
   padding: 24px 20px 40px;
-  max-width: 860px;
+  max-width: 780px;
   width: 100%;
   margin: 0 auto;
 }
 
-/* ---------- Composer ---------- */
+/* ---------- COMPOSER ---------- */
 .nova-composer-wrap {
   padding: 12px 20px 20px;
   background: var(--bg);
   flex-shrink: 0;
-  max-width: 860px;
+  max-width: 780px;
   width: 100%;
   margin: 0 auto;
 }
@@ -686,7 +759,17 @@
   margin: 8px 0 0;
 }
 
-/* ---------- Backdrop ---------- */
+/* Web search hint in the composer footer */
+.nova-web-hint {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.nova-composer-hint-error {
+  color: var(--danger);
+}
+
+/* ---------- BACKDROP ---------- */
 .nova-backdrop {
   display: none;
   position: fixed;
@@ -695,7 +778,7 @@
   z-index: 60;
 }
 
-/* ---------- Voice ---------- */
+/* ---------- MIC / TOOL BUTTONS ---------- */
 .nova-mic-btn {
   width: 34px;
   height: 34px;
@@ -711,6 +794,17 @@
   flex-shrink: 0;
   position: relative;
 }
+
+.nova-mic-btn:hover:not(:disabled) {
+  background: var(--surface-alt);
+  color: var(--primary);
+}
+
+.nova-mic-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* Active state for tool buttons (e.g. web search ON) */
 .nova-mic-btn.active {
   background: var(--primary-light);
@@ -721,21 +815,6 @@
   background: var(--primary-light);
   color: var(--primary);
   transform: scale(1.05);
-}
-
-/* Web search hint in the composer footer */
-.nova-web-hint {
-  color: var(--primary);
-  font-weight: 600;
-}
-.nova-mic-btn:hover:not(:disabled) {
-  background: var(--surface-alt);
-  color: var(--primary);
-}
-
-.nova-mic-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
 }
 
 .nova-mic-btn.listening {
@@ -782,11 +861,7 @@
   }
 }
 
-.nova-composer-hint-error {
-  color: var(--danger);
-}
-
-/* ---------- Attachments ---------- */
+/* ---------- ATTACHMENTS ---------- */
 .nova-attachments {
   display: flex;
   flex-wrap: wrap;
@@ -858,7 +933,7 @@
   color: var(--danger);
 }
 
-/* ---------- Spin ---------- */
+/* ---------- SPINNER ---------- */
 .spin {
   animation: spin 1s linear infinite;
 }
@@ -914,62 +989,19 @@
     max-width: 100%;
   }
 
+  /* On mobile: content goes full width */
   .nova-messages {
-  flex: 1;
-  padding: 24px 20px 40px;
-  max-width: 780px;
-  width: 100%;
-  margin: 0 auto;
-}
+    padding: 16px 12px 32px;
+    max-width: 100%;
+  }
 
   .nova-composer-wrap {
     padding: 8px 12px 14px;
+    max-width: 100%;
   }
 
   .nova-composer {
     padding: 8px 8px 8px 14px;
     border-radius: 16px;
   }
-}
-/* ==================================================
-   Back-to-Dashboard button (sidebar footer)
-   ================================================== */
-.nova-dashboard-btn {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 10px 12px;
-  margin-bottom: 8px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  background: var(--surface-alt);
-  color: var(--text);
-  font-size: 13px;
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-  transition: all 0.15s;
-  text-align: left;
-}
-
-.nova-dashboard-btn:hover {
-  background: var(--primary-light);
-  color: var(--primary);
-  border-color: var(--primary);
-  transform: translateX(-2px);
-}
-
-.nova-dashboard-btn svg {
-  flex-shrink: 0;
-}
-
-/* Home icon in topbar — always visible */
-.nova-home-btn {
-  color: var(--text-muted);
-}
-
-.nova-home-btn:hover {
-  color: var(--primary);
-  background: var(--primary-light);
 }

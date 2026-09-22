@@ -7,6 +7,7 @@ import ConceptModal from "../components/ConceptModal";
 import RelatedTopics from "../components/RelatedTopics";
 import ClickableTypes, { hasValidTypes } from "../components/ClickableTypes";
 import { exportAnswerAsPdf } from "../utils/pdfExport";
+import { useCachedFetch } from "../hooks/useCachedFetch";
 import "../components/Markdown.css";
 import {
   Sparkles,
@@ -31,34 +32,29 @@ export default function TopicView() {
   const { id } = useParams();
   const navigate = useNavigate();
 
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [regenerating, setRegenerating] = useState(false);
-  const [error, setError] = useState("");
-  const [activeConcept, setActiveConcept] = useState(null);
+  const cacheKey = id ? `topic_full_v2_${id}` : null;
 
+  const {
+    data,
+    loading,
+    refreshing,
+    error,
+    refresh,
+  } = useCachedFetch(
+    cacheKey,
+    async () => {
+      const res = await getTopicFull(id);
+      return res.data;
+    },
+    { ttl: 10 * 60 * 1000 } // 10 min
+  );
+
+  const [regenerating, setRegenerating] = useState(false);
+  const [activeConcept, setActiveConcept] = useState(null);
   const [copiedAll, setCopiedAll] = useState(false);
   const [exporting, setExporting] = useState(false);
 
   const contentRef = useRef(null);
-
-  useEffect(() => {
-    loadTopic();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
-
-  const loadTopic = async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const res = await getTopicFull(id);
-      setData(res.data);
-    } catch (err) {
-      setError(err.response?.data?.detail || "Failed to load topic");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleRegenerate = async () => {
     if (
@@ -70,12 +66,16 @@ export default function TopicView() {
     setRegenerating(true);
     try {
       await regenerateContent(id);
-      await loadTopic();
+      await refresh(); // fetch fresh after regeneration
     } catch {
-      setError("Regeneration failed.");
+      // error handled in hook
     } finally {
       setRegenerating(false);
     }
+  };
+
+  const handleRefresh = async () => {
+    await refresh();
   };
 
   const handleCopyAll = async () => {
@@ -85,7 +85,7 @@ export default function TopicView() {
       setCopiedAll(true);
       setTimeout(() => setCopiedAll(false), 2000);
     } catch {
-      setError("Could not copy to clipboard.");
+      // silent
     }
   };
 
@@ -105,14 +105,12 @@ export default function TopicView() {
       });
     } catch (err) {
       console.error(err);
-      setError("PDF export failed.");
     } finally {
       setExporting(false);
     }
   };
 
   const handleBack = () => {
-    // Go back in browser history. If there's no history, fall back to /search.
     if (window.history.length > 1) {
       navigate(-1);
     } else {
@@ -120,7 +118,6 @@ export default function TopicView() {
     }
   };
 
-  // ---------- LOADING ----------
   if (loading) {
     return (
       <div className="topic-loading">
@@ -138,31 +135,19 @@ export default function TopicView() {
     );
   }
 
-  if (error) {
+  if (error && !data) {
     return (
       <div className="topic-error-wrap">
         <div className="topic-error">{error}</div>
         <div className="topic-error-actions">
-          <button
-            className="btn-primary"
-            onClick={() => {
-              setError("");
-              loadTopic();
-            }}
-          >
+          <button className="btn-primary" onClick={handleRefresh}>
             <RefreshCw size={14} />
             Try Again
           </button>
-          <button
-            className="btn-secondary"
-            onClick={() => navigate("/search")}
-          >
+          <button className="btn-secondary" onClick={() => navigate("/search")}>
             Back to Search
           </button>
-          <button
-            className="btn-secondary"
-            onClick={() => navigate("/")}
-          >
+          <button className="btn-secondary" onClick={() => navigate("/")}>
             Dashboard
           </button>
         </div>
@@ -176,13 +161,8 @@ export default function TopicView() {
 
   return (
     <div className="topic-view" ref={contentRef}>
-      {/* ---------- HEADER ---------- */}
       <div className="topic-header" data-html2canvas-ignore="true">
-        <button
-          className="topic-back"
-          onClick={handleBack}
-          type="button"
-        >
+        <button className="topic-back" onClick={handleBack} type="button">
           <ArrowLeft size={16} /> Back
         </button>
 
@@ -204,6 +184,20 @@ export default function TopicView() {
           </div>
 
           <div className="topic-actions" data-html2canvas-ignore="true">
+            {/* ✅ NEW: Refresh button */}
+            <button
+              className="btn-secondary"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              title="Refresh content"
+            >
+              <RefreshCw
+                size={14}
+                className={refreshing ? "spin" : ""}
+              />
+              {refreshing ? "Refreshing..." : "Refresh"}
+            </button>
+
             <button
               className="btn-secondary"
               onClick={handleCopyAll}
@@ -253,7 +247,6 @@ export default function TopicView() {
         </div>
       </div>
 
-      {/* ---------- CONCEPT CHIPS ---------- */}
       {concepts.length > 0 && (
         <section
           className="topic-concepts-strip"
@@ -270,7 +263,6 @@ export default function TopicView() {
                 type="button"
                 className="concept-chip concept-chip-clickable"
                 onClick={() => setActiveConcept(c)}
-                title={`Click to learn more about ${c.name}`}
               >
                 <span className="concept-chip-name">{c.name}</span>
                 <span
@@ -285,14 +277,12 @@ export default function TopicView() {
         </section>
       )}
 
-      {/* ---------- 1. INTRO ---------- */}
       {content.intro_md && (
         <Section icon={BookOpen} title="Introduction" accent="blue">
           <Markdown>{content.intro_md}</Markdown>
         </Section>
       )}
 
-      {/* ---------- 2. REAL-WORLD EXAMPLE ---------- */}
       {content.real_world_example_md && (
         <Section icon={Lightbulb} title="Real-World Example" accent="yellow">
           <div className="topic-highlight-block">
@@ -301,7 +291,6 @@ export default function TopicView() {
         </Section>
       )}
 
-      {/* ---------- 3. WHY IT'S NEEDED ---------- */}
       {content.why_needed_md && (
         <Section
           icon={Target}
@@ -312,14 +301,12 @@ export default function TopicView() {
         </Section>
       )}
 
-      {/* ---------- 4. HOW IT WORKS ---------- */}
       {content.how_it_works_md && (
         <Section icon={Zap} title="How It Works" accent="orange">
           <Markdown>{content.how_it_works_md}</Markdown>
         </Section>
       )}
 
-      {/* ---------- 5. DIAGRAM ---------- */}
       {content.diagram_mermaid && content.diagram_mermaid.trim() && (
         <Section icon={Layers} title="Diagram" accent="purple">
           <MermaidDiagram code={content.diagram_mermaid} />
@@ -329,35 +316,30 @@ export default function TopicView() {
         </Section>
       )}
 
-      {/* ---------- 6. TYPES (clickable names) ---------- */}
       {hasValidTypes(content.types_md) && (
         <Section icon={Layers} title="Types & Variants" accent="blue">
           <ClickableTypes markdown={content.types_md} />
         </Section>
       )}
 
-      {/* ---------- 7. APPLICATIONS ---------- */}
       {content.applications_md && (
         <Section icon={Target} title="Applications" accent="green">
           <Markdown>{content.applications_md}</Markdown>
         </Section>
       )}
 
-      {/* ---------- 8. CHALLENGES ---------- */}
       {content.challenges_md && (
         <Section icon={AlertTriangle} title="Challenges" accent="red">
           <Markdown>{content.challenges_md}</Markdown>
         </Section>
       )}
 
-      {/* ---------- 9. BEST PRACTICES ---------- */}
       {content.best_practices_md && (
         <Section icon={Wrench} title="Best Practices" accent="green">
           <Markdown>{content.best_practices_md}</Markdown>
         </Section>
       )}
 
-      {/* ---------- 10. RELATED TOPICS (clickable) ---------- */}
       {content.related_topics_md && (
         <Section icon={Link2} title="Related Topics to Explore" accent="purple">
           <p className="rt-hint" data-html2canvas-ignore="true">
@@ -367,7 +349,6 @@ export default function TopicView() {
         </Section>
       )}
 
-      {/* ---------- BOTTOM CTA ---------- */}
       <div className="topic-cta" data-html2canvas-ignore="true">
         <div>
           <h3>Ready to test your understanding?</h3>
@@ -384,7 +365,6 @@ export default function TopicView() {
         </button>
       </div>
 
-      {/* ---------- CONCEPT MODAL ---------- */}
       {activeConcept && (
         <ConceptModal
           concept={activeConcept}
@@ -395,7 +375,6 @@ export default function TopicView() {
   );
 }
 
-/* ---------- Reusable Section ---------- */
 function Section({ icon: Icon, title, accent, children }) {
   return (
     <section className="topic-section">

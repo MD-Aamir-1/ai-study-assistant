@@ -14,6 +14,16 @@ export default function Layout({ children }) {
     localStorage.setItem("sidebar_collapsed", collapsed ? "true" : "false");
   }, [collapsed]);
 
+  // On mobile: hamburger toggles the drawer
+  // On desktop: it should also toggle the sidebar collapse state
+  const handleMenuClick = () => {
+    if (typeof window !== "undefined" && window.innerWidth <= 900) {
+      setMobileOpen((o) => !o);
+    } else {
+      setCollapsed((c) => !c);
+    }
+  };
+
   return (
     <div className={`app-layout ${collapsed ? "sidebar-collapsed" : ""}`}>
       <Sidebar
@@ -32,7 +42,10 @@ export default function Layout({ children }) {
       )}
 
       <div className="app-main">
-        <Topbar onMenuClick={() => setMobileOpen((o) => !o)} />
+        <Topbar
+          onMenuClick={handleMenuClick}
+          collapsed={collapsed}
+        />
         <main className="app-content">{children}</main>
       </div>
     </div>

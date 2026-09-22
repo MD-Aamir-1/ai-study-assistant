@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   getDashboardAnalytics,
@@ -7,142 +7,72 @@ import {
   getTopicFull,
 } from "../api/client";
 import { useAuth } from "../context/AuthContext";
+import { useCachedFetch } from "../hooks/useCachedFetch";
 import {
   Target,
   TrendingUp,
   CheckCircle2,
   AlertTriangle,
   Sparkles,
+  RefreshCw,
 } from "lucide-react";
 import "./Dashboard.css";
-
-const CACHE_KEY = "dashboard_cache_v1";
-const RECS_CACHE_KEY = "dashboard_recs_cache_v1";
-const CACHE_TTL_MS = 60 * 1000; // 60 seconds
 
 export default function Dashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  const [data, setData] = useState(null);
-  const [recs, setRecs] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [openingRecId, setOpeningRecId] = useState(null);
-
-  // ==================================================
-  // Instant load from cache, then silent refresh
-  // ==================================================
-  useEffect(() => {
-    if (!user?.student_id) return;
-
-    // ---- Step 1: Instant from cache ----
-    let hasCache = false;
-    try {
-      const cachedData = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
-      const cachedRecs = JSON.parse(
-        localStorage.getItem(RECS_CACHE_KEY) || "null"
-      );
-
-      if (cachedData && cachedData.student_id === user.student_id) {
-        setData(cachedData.data);
-        hasCache = true;
-        setLoading(false); // ← Show content immediately
-      }
-
-      if (cachedRecs && cachedRecs.student_id === user.student_id) {
-        setRecs(cachedRecs.data || []);
-      }
-    } catch {
-      // ignore cache errors
+  // ---------- Cached fetches (instant load + manual refresh) ----------
+  const {
+    data: analyticsData,
+    loading,
+    error,
+    refreshing,
+    refresh,
+  } = useCachedFetch(
+    user?.student_id ? `dash_analytics_${user.student_id}` : "dash_analytics_none",
+    async () => {
+      if (!user?.student_id) return null;
+      const res = await getDashboardAnalytics(user.student_id);
+      return res.data;
     }
+  );
 
-    // ---- Step 2: Refresh in background ----
-    refreshAll(!hasCache); // pass true = show spinner on first ever load
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.student_id]);
-
-  const refreshAll = async (showLoading = false) => {
-    if (!user?.student_id) return;
-
-    if (showLoading) setLoading(true);
-    setError("");
-
-    // Fetch both in parallel — much faster than sequential
-    const [analyticsResult, recsResult] = await Promise.allSettled([
-      getDashboardAnalytics(user.student_id),
-      getRecommendationsList(user.student_id),
-    ]);
-
-    if (analyticsResult.status === "fulfilled") {
-      setData(analyticsResult.value.data);
-      try {
-        localStorage.setItem(
-          CACHE_KEY,
-          JSON.stringify({
-            student_id: user.student_id,
-            data: analyticsResult.value.data,
-            fetchedAt: Date.now(),
-          })
-        );
-      } catch {
-        // ignore storage errors
-      }
-    } else if (!data) {
-      setError("Failed to load dashboard data");
+  const { data: recsData } = useCachedFetch(
+    user?.student_id ? `dash_recs_${user.student_id}` : "dash_recs_none",
+    async () => {
+      if (!user?.student_id) return [];
+      const res = await getRecommendationsList(user.student_id);
+      return (res.data.recommendations || []).slice(0, 3);
     }
+  );
 
-    if (recsResult.status === "fulfilled") {
-      const topRecs = recsResult.value.data.recommendations.slice(0, 3);
-      setRecs(topRecs);
-      try {
-        localStorage.setItem(
-          RECS_CACHE_KEY,
-          JSON.stringify({
-            student_id: user.student_id,
-            data: topRecs,
-            fetchedAt: Date.now(),
-          })
-        );
-      } catch {
-        // ignore storage errors
-      }
-    }
+  const recs = recsData || [];
 
-    setLoading(false);
+  const refreshAll = () => {
+    refresh();
   };
 
-  // ==================================================
-  // Recommendation click handler
-  // ==================================================
   const prefetchRec = (rec) => {
     if (!user?.student_id) return;
     searchTopic(rec.concept_name, user.student_id, "medium").catch(() => {});
   };
 
   const handleOpenRec = async (rec) => {
-    if (!user?.student_id || openingRecId) return;
-    setOpeningRecId(rec.id);
+    if (!user?.student_id) return;
     try {
       const res = await searchTopic(rec.concept_name, user.student_id, "medium");
       getTopicFull(res.data.topic_id).catch(() => {});
       navigate(`/topic/${res.data.topic_id}`);
     } catch (err) {
       console.error(err);
-      setError(
-        err.response?.data?.detail ||
-          "Could not open this topic. Please try again."
-      );
-      setOpeningRecId(null);
     }
   };
 
+  const data = analyticsData;
+
   return (
     <div className="dashboard">
-      {error && <div className="dash-error">{error}</div>}
-
-      {/* ---------- GREETING ---------- */}
       <div className="dash-greeting-row">
         <div>
           <h1 className="dash-title">
@@ -150,14 +80,25 @@ export default function Dashboard() {
           </h1>
           <p className="dash-subtitle">Keep going. You're doing great.</p>
         </div>
+
+        <button
+          type="button"
+          className="dash-refresh-btn"
+          onClick={refreshAll}
+          disabled={refreshing}
+          title="Refresh dashboard"
+        >
+          <RefreshCw size={15} className={refreshing ? "spin" : ""} />
+          {refreshing ? "Refreshing..." : "Refresh"}
+        </button>
       </div>
 
-      {/* Show spinner ONLY on first ever load (no cache) */}
+      {error && <div className="dash-error">{error}</div>}
+
       {loading && !data && <p className="dash-muted">Loading dashboard...</p>}
 
       {data && (
         <>
-          {/* ---------- STAT CARDS ---------- */}
           <div className="dash-stats">
             <div className="stat-card">
               <div className="stat-top">
@@ -252,7 +193,6 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* ---------- RECOMMENDED FOR YOU ---------- */}
           {recs.length > 0 && (
             <div className="panel">
               <div className="panel-header">
@@ -283,18 +223,8 @@ export default function Dashboard() {
                       <div className="dash-rec-reason">{r.reason}</div>
                     </div>
                     <div className="dash-rec-meta">
-                      {openingRecId === r.id ? (
-                        <span className="dash-rec-opening">Opening...</span>
-                      ) : (
-                        <>
-                          <span className="dash-rec-min">
-                            {r.suggested_minutes}m
-                          </span>
-                          <span className="dash-rec-activity">
-                            {r.activity_type}
-                          </span>
-                        </>
-                      )}
+                      <span className="dash-rec-min">{r.suggested_minutes}m</span>
+                      <span className="dash-rec-activity">{r.activity_type}</span>
                     </div>
                   </div>
                 ))}
@@ -302,13 +232,13 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* ---------- YOUR PERFORMANCE ---------- */}
           <div className="panel">
             <div className="panel-header">
               <h2 className="panel-title">Your Performance</h2>
             </div>
 
-            {data.subject_performance.length === 0 ? (
+            {(!data.subject_performance ||
+              data.subject_performance.length === 0) ? (
               <p className="dash-muted">No subjects yet.</p>
             ) : (
               <div className="perf-list">
@@ -330,7 +260,6 @@ export default function Dashboard() {
             )}
           </div>
 
-          {/* ---------- AI RECOMMENDATION ---------- */}
           <div className="ai-reco-card">
             <div className="ai-reco-icon">
               <Sparkles size={20} />
