@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import {
   getChatModels,
@@ -43,6 +44,8 @@ import {
   MicOff,
   Paperclip,
   File as FileIcon,
+  Home,
+  LayoutDashboard,
 } from "lucide-react";
 import "./AITutor.css";
 
@@ -60,6 +63,7 @@ const SUGGESTIONS = [
 
 export default function AITutor() {
   const { user } = useAuth();
+  const navigate = useNavigate();
 
   const [conversations, setConversations] = useState([]);
   const [activeConvId, setActiveConvId] = useState(null);
@@ -632,6 +636,16 @@ export default function AITutor() {
         </div>
 
         <div className="nova-sidebar-foot">
+          <button
+            type="button"
+            className="nova-dashboard-btn"
+            onClick={() => navigate("/")}
+            title="Back to Dashboard"
+          >
+            <LayoutDashboard size={16} />
+            <span>Back to Dashboard</span>
+          </button>
+
           <div className="nova-user">
             <div className="nova-user-avatar">
               {user?.avatar_url ? (
@@ -658,6 +672,16 @@ export default function AITutor() {
 
       <main className="nova-main">
         <header className="nova-topbar">
+          <button
+            type="button"
+            className="nova-icon-btn nova-home-btn"
+            onClick={() => navigate("/")}
+            title="Back to Dashboard"
+            aria-label="Back to Dashboard"
+          >
+            <Home size={18} />
+          </button>
+
           <button
             type="button"
             className="nova-icon-btn nova-hamburger"

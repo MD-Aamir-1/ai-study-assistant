@@ -931,3 +931,45 @@
     border-radius: 16px;
   }
 }
+/* ==================================================
+   Back-to-Dashboard button (sidebar footer)
+   ================================================== */
+.nova-dashboard-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: left;
+}
+
+.nova-dashboard-btn:hover {
+  background: var(--primary-light);
+  color: var(--primary);
+  border-color: var(--primary);
+  transform: translateX(-2px);
+}
+
+.nova-dashboard-btn svg {
+  flex-shrink: 0;
+}
+
+/* Home icon in topbar — always visible */
+.nova-home-btn {
+  color: var(--text-muted);
+}
+
+.nova-home-btn:hover {
+  color: var(--primary);
+  background: var(--primary-light);
+}
